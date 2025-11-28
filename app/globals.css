@@ -1,0 +1,64 @@
+
+@import "tailwindcss";
+@import "./styles/markdown.css";
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #2d3748;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4a5568;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #718096;
+}
+
+/* Modern scrollbar for message cards */
+.message-card::-webkit-scrollbar {
+  width: 6px;
+  margin-right: 8px;
+}
+
+.message-card::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 0 3px 3px 0;
+  margin: 6px 0;
+}
+
+.message-card::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #312e81 0%, #1e1b4b 50%, #0f172a 100%);
+  border-radius: 0 3px 3px 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-left: none;
+}
+
+.message-card::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, #4c1d95 0%, #312e81 50%, #1e293b 100%);
+  box-shadow: 0 0 8px rgba(100, 170, 255, 0.3);
+}
+
+/* Model selector dropdown scrollbar */
+.model-selector-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.model-selector-dropdown::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+.model-selector-dropdown::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #312e81 0%, #1e1b4b 50%, #0f172a 100%);
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.model-selector-dropdown::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, #4c1d95 0%, #312e81 50%, #1e293b 100%);
+}
