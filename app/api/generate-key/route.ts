@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import {NextResponse} from "next/server";
 import { ref, set, push } from "firebase/database";
-import { db } from '@/app/lib/firebase';
+import { db } from '@/app/lib/database/firebase';
 
 export async function POST() {
     const apiKey = crypto.randomUUID();

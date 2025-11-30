@@ -1,11 +1,61 @@
 "use client"
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {Braces, Copy, Check, SquareMousePointer} from "lucide-react";
 
 const Page = () => {
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [password, setPassword] = useState('');
+    const [loginError, setLoginError] = useState('');
     const [apiOpen, setApiOpen] = useState(false);
     const [key, setKey] = useState("");
     const [copied, setCopied] = useState(false);
+
+    const handleLogin = () => {
+        const correctPassword = process.env.NEXT_PUBLIC_API_GEN_PASSWORD;
+        if (password === correctPassword) {
+            setIsAuthenticated(true);
+            setLoginError('');
+        } else {
+            setLoginError('Parolă incorectă');
+        }
+    };
+
+    if (!isAuthenticated) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-900 bg-[linear-gradient(135deg,#0f0f23_0%,#1e293b_20%,#312e81_40%,#1e1b4b_60%,#0f172a_80%,#1e293b_100%)] p-4">
+                <div className="w-full max-w-md bg-white/5 backdrop-blur-md p-8 rounded-2xl shadow-2xl border border-white/10">
+                    <div className="text-center mb-6">
+                        <h2 className="text-2xl font-extrabold bg-gradient-to-r from-purple-200 via-blue-200 to-blue-200 bg-clip-text text-transparent drop-shadow-lg mb-2">
+                            Acces Protejat
+                        </h2>
+                        <p className="text-gray-300 text-sm">Introduceți parola pentru a genera chei API</p>
+                    </div>
+                    <div className="space-y-4">
+                        <div>
+                            <input
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                className="w-full p-3 rounded-xl bg-gray-800/50 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300"
+                                placeholder="Parolă"
+                            />
+                        </div>
+                        <button
+                            onClick={handleLogin}
+                            className="w-full py-3 px-4 bg-gradient-to-r from-purple-500/80 to-blue-500/80 hover:from-purple-600/90 hover:to-blue-600/90 text-white font-semibold rounded-xl shadow-lg hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105"
+                        >
+                            Autentificare
+                        </button>
+                        {loginError && (
+                            <div className="text-center">
+                                <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg p-2">{loginError}</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     async function getKey() {
         setApiOpen(true);
@@ -39,7 +89,7 @@ const Page = () => {
                 <div className="flex flex-row gap-2 items-center">
                     <button
                         onClick={getKey}
-                        className="px-6 py-2 flex items-center text-base rounded-xl tracking-wider text-white bg-[linear-gradient(135deg,theme(colors.purple.500/0.2),theme(colors.indigo.500/0.15),theme(colors.purple.400/0.2))] shover:from-purple-500/30 hover:via-indigo-500/25 hover:to-purple-400/30 transition hover:scale-102 transition-all duration-300"
+                        className="px-6 py-2 flex items-center text-base rounded-xl tracking-wider text-white bg-[linear-gradient(135deg,theme(colors.purple.500/0.2),theme(colors.indigo.500/0.15),theme(colors.purple.400/0.2))] shover:from-purple-500/30 hover:via-indigo-500/25 hover:to-purple-400/30 hover:scale-102 transition-all duration-300"
                     >   <SquareMousePointer  className="mr-2"/>
                         <span className="text-lg font-bold font-mono">{'CLICK '}</span>
                     </button>

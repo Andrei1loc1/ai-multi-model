@@ -1,13 +1,22 @@
-import { AIModel, AIModels } from "./models";
+import { AIModel, AIModels } from "../AImodels/models";
+
+const modelCache = new Map<string, AIModel>();
 
 export function getModel(preferredModel? :string): AIModel{
-    if(preferredModel){
-        const found = AIModels.find(m => m.id === preferredModel && m.active && typeof m.apiKey === "string" && m.apiKey.length > 0);
-        if(found){
-            return found;
-        }
+    const cacheKey = preferredModel || "default";
+    if (modelCache.has(cacheKey)) {
+        return modelCache.get(cacheKey)!;
     }
-    const available = AIModels.find(m => m.active && typeof m.apiKey === "string" && m.apiKey.length > 0);
-    if(!available) throw new Error("No active models yet");
-    return available;
+
+    let model: AIModel | undefined;
+    if(preferredModel){
+        model = AIModels.find(m => m.id === preferredModel && m.active && typeof m.apiKey === "string" && m.apiKey.length > 0);
+    }
+    if (!model) {
+        model = AIModels.find(m => m.active && typeof m.apiKey === "string" && m.apiKey.length > 0);
+    }
+    if(!model) throw new Error("No active models yet");
+
+    modelCache.set(cacheKey, model);
+    return model;
 }

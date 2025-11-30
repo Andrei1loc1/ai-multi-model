@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getModel } from "@/app/lib/getModel";
-import { aiRequest } from "@/app/lib/aiRequest";
-import { db } from '@/app/lib/firebase';
+import { getModel } from "@/app/lib/chatUtils/getModel";
+import { aiRequest } from "@/app/lib/chatUtils/aiRequest";
+import { db } from '@/app/lib/database/firebase';
 import { ref, query, orderByChild, equalTo, get } from "firebase/database";
+
+interface AIResponse {
+    text: string;
+    raw: any;
+}
 
 async function validateApiKey(apiKey: string): Promise<boolean> {
     const apiKeysRef = ref(db, 'apiKeys');
@@ -35,7 +40,7 @@ export async function POST(req: NextRequest) {
         }
 
         const model = getModel(preferredModel);
-        const response = await aiRequest(model, prompt);
+        const response = await aiRequest(model, prompt, false) as AIResponse;
 
         return NextResponse.json({
             success: true,

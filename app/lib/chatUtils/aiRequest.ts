@@ -1,4 +1,4 @@
-import {AIModel} from "./models";
+import {AIModel} from "../AImodels/models";
 import axios from "axios";
 
 interface AIResponse {
@@ -6,7 +6,7 @@ interface AIResponse {
     raw: any;
 }
 
-export async function aiRequest(model: AIModel, prompt: string): Promise<AIResponse> {
+export async function aiRequest(model: AIModel, prompt: string, stream: boolean = false): Promise<AIResponse | ReadableStream<Uint8Array>> {
     if(model.provider === "openrouter"){
         try{
             const response = await axios.post(
@@ -14,6 +14,7 @@ export async function aiRequest(model: AIModel, prompt: string): Promise<AIRespo
                 {
                     model: model.model,
                     messages: [{ role: "user", content: prompt }],
+                    stream: stream,
                 },
                 {
                     headers: {
@@ -22,9 +23,13 @@ export async function aiRequest(model: AIModel, prompt: string): Promise<AIRespo
                         "HTTP-Referer": "http://localhost:3000",
                         "X-Title": "Multi-Model AI App",
                     },
+                    responseType: stream ? 'stream' : 'json',
                 }
             );
-            const text = response.data?.choices?.[0]?.message?.content ?? "[No response recived]";
+            if (stream) {
+                return response.data; // the stream
+            }
+            const text = response.data?.choices?.[0]?.message?.content ?? "[No response received]";
             return {
                 text,
                 raw: response.data,
