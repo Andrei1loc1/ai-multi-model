@@ -3,7 +3,7 @@ import { generateText } from 'ai';
 
 const groq = createOpenAI({
     baseURL: 'https://api.groq.com/openai/v1',
-    apiKey: process.env.GROQ_API_KEY,
+    apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
 });
 
 export async function comprimContext(prompt : string, bruteContext: string){
