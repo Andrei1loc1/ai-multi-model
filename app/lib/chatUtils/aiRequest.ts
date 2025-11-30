@@ -20,7 +20,7 @@ export async function aiRequest(model: AIModel, prompt: string, stream: boolean 
                     headers: {
                         "Content-Type": "application/json",
                         "Authorization": `Bearer ${model.apiKey}`,
-                        "HTTP-Referer": "http://localhost:3000",
+                        "HTTP-Referer": process.env.NEXT_PUBLIC_VERCEL_URL || "http://localhost:3000",
                         "X-Title": "Multi-Model AI App",
                     },
                     responseType: stream ? 'stream' : 'json',
