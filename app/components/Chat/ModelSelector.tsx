@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { AIModels } from '@/app/lib/AImodels/models';
+import { PublicModelIds } from '@/app/lib/AImodels/models';
 import { ChevronDown } from 'lucide-react';
 
 const ModelSelector = ({ selectedModel, setSelectedModel }: { selectedModel: string, setSelectedModel: (model: string) => void }) => {
     const [isOpen, setIsOpen] = useState(false);
-    const models = ["auto", ...AIModels.filter(m => m.active).map(m => m.id)];
+    const models = ["auto", ...PublicModelIds];
 
     return (
         <div className="relative">

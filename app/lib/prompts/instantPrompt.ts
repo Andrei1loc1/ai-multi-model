@@ -1,6 +1,3 @@
-import {comprimContext} from "@/app/lib/compress/compressorContext";
-
-
 export const instantPrompt = ({compressedContext, input} : {compressedContext: any, input: any}) => {
     return compressedContext
         ? `

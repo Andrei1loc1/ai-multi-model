@@ -5,7 +5,6 @@ import ChatWindow from "@/app/components/Chat/ChatWindow";
 import { sendMessage} from "@/app/lib/chatUtils/sendMessage";
 import ChatInput from "@/app/components/Chat/ChatInput";
 import { Braces, Save} from 'lucide-react';
-import {comprimContext} from "@/app/lib/compress/compressorContext";
 import SaveResponseModal from "@/app/components/modals/SaveResponseModal";
 import {instantPrompt} from "@/app/lib/prompts/instantPrompt";
 import {detailedPrompt} from "@/app/lib/prompts/detailedPrompt";
@@ -34,8 +33,23 @@ export default function ChatUI() {
     const sendMessageF = async () => {
         let compressedContext = "";
         if (useContext) {
-            const recentHistory = messageHistory.slice(-10); // Limit to last 10 messages
-            compressedContext = await comprimContext(input, JSON.stringify(recentHistory));
+            const recentHistory = messageHistory.slice(-10);
+            try {
+                const res = await fetch('/api/compress', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: input, bruteContext: JSON.stringify(recentHistory) })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    compressedContext = data.text || "";
+                } else {
+                    compressedContext = "";
+                }
+            } catch (e) {
+                console.error('Failed to fetch compressed context', e);
+                compressedContext = "";
+            }
         }
 
         const selectedPromptFn = promptFunctions[selectedPrompt as keyof typeof promptFunctions];

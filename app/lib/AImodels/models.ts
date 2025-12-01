@@ -12,7 +12,7 @@ export const AIModels: AIModel[] = [
         provider: "openrouter",
         model: "x-ai/grok-4.1-fast:free",
         endpoint: "https://openrouter.ai/api/v1/chat/completions",
-        apiKey: process.env.OPENROUTER_API_KEY_1,
+        apiKey: process.env.OPENRUTER_API_KEY_1,
         active: true,
     },
     {
@@ -112,3 +112,5 @@ export const AIModels: AIModel[] = [
         active: true,
     },
 ];
+
+export const PublicModelIds: string[] = AIModels.filter(m => m.active).map(m => m.id);

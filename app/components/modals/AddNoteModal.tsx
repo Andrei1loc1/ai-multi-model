@@ -49,7 +49,7 @@ const AddNoteModal = ({setIsOpen} : {setIsOpen: any}) => {
                     />
                     <button
                         onClick={handleSave}
-                        className="w-full p-3 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-lg hover:from-purple-600 hover:to-blue-600 transition-colors duration-200 font-semibold"
+                        className="w-full p-3 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 text-white rounded-lg hover:from-indigo-500/30 hover:to-purple-500/30 transition-colors duration-200 font-semibold"
                     >
                         Save Note
                     </button>

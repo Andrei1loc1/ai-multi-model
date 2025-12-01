@@ -35,9 +35,7 @@ export async function sendMessage({input, setInput, setLoading, setResponse, mod
                                 accumulatedResponse += data.content;
                                 setResponse(accumulatedResponse);
                             }
-                        } catch (e) {
-                            // ignore
-                        }
+                        } catch (e) {}
                     };
 
                     eventSource.onerror = (err) => {
@@ -60,6 +58,20 @@ export async function sendMessage({input, setInput, setLoading, setResponse, mod
                     }),
                 });
 
+                if (!res.ok) {
+                    let errorMsg = "❌ Server error.";
+                    try {
+                        const errData = await res.json();
+                        if (res.status === 401) {
+                            errorMsg = errData?.error || "❌ Unauthorized from AI provider. Please verify API key and model access on the server.";
+                        } else {
+                            errorMsg = errData?.error || errorMsg;
+                        }
+                    } catch (_) {}
+                    setResponse(errorMsg);
+                    return errorMsg;
+                }
+
                 const data = await res.json();
                 setResponse(data.text);
                 return data.text;
@@ -72,7 +84,6 @@ export async function sendMessage({input, setInput, setLoading, setResponse, mod
                 setResponse(errorMsg);
                 return errorMsg;
             }
-            // wait before retry
             await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
         } finally {
             if (!stream) setLoading(false);
