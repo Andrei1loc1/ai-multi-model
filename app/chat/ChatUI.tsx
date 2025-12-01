@@ -27,7 +27,7 @@ export default function ChatUI() {
     const [selectedModel, setSelectedModel] = useState("auto");
     const [selectedPrompt, setSelectedPrompt] = useState("instant");
     const [messageHistory, setMessageHistory] = useState<Array<{userPrompt: string, response: string}>>([]);
-    const [useContext, setUseContext] = useState(true);
+    const [useContext, setUseContext] = useState(false);
     const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
 
     const sendMessageF = async () => {
