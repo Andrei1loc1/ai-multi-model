@@ -39,7 +39,7 @@ export default function WorkspaceSidebar({
     const [isMobileExpanded, setIsMobileExpanded] = useState(false);
 
     return (
-        <aside className="mt-10 w-full shrink-0 rounded-[22px] border border-white/8 bg-slate-950/72 p-2.5 shadow-[0_18px_60px_rgba(2,6,23,0.42)] backdrop-blur-2xl sm:rounded-[24px] sm:p-3 lg:mt-14 lg:w-[280px] lg:rounded-[28px]">
+        <aside className="mt-10 w-full min-w-0 shrink-0 rounded-[22px] border border-white/8 bg-slate-950/72 p-2.5 shadow-[0_18px_60px_rgba(2,6,23,0.42)] backdrop-blur-2xl sm:rounded-[24px] sm:p-3 lg:mt-14 lg:w-[280px] lg:rounded-[28px]">
             <div className="mb-3 flex items-center justify-between gap-3 px-1 sm:mb-4">
                 <div>
                     <p className="text-[10px] uppercase tracking-[0.35em] text-cyan-200/60">Workspace</p>

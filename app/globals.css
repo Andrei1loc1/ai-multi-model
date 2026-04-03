@@ -10,10 +10,18 @@
 
 html {
   scroll-behavior: smooth;
+  background: #020617;
+  overflow-x: clip;
 }
 
 body {
   color: #e5eefb;
+  background:
+    radial-gradient(circle at top left, rgba(34, 211, 238, 0.10), transparent 22%),
+    radial-gradient(circle at top right, rgba(129, 140, 248, 0.12), transparent 28%),
+    linear-gradient(145deg, #020617 0%, #0f172a 48%, #111827 100%);
+  overflow-x: clip;
+  overscroll-behavior-y: none;
 }
 
 ::-webkit-scrollbar {

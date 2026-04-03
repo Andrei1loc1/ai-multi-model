@@ -721,8 +721,8 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
     }, []);
 
     return (
-        <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-2.5 px-2.5 pb-2.5 pt-16 sm:px-3 lg:px-4 lg:pb-3 lg:pt-6">
-            <div className="grid grid-cols-1 gap-2.5 xl:grid-cols-[280px_minmax(0,1fr)] xl:items-start">
+        <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-2.5 overflow-x-clip px-2.5 pb-2.5 pt-16 sm:px-3 lg:px-4 lg:pb-3 lg:pt-6">
+            <div className="grid min-w-0 grid-cols-1 gap-2.5 xl:grid-cols-[280px_minmax(0,1fr)] xl:items-start">
                 <WorkspaceSidebar
                     workspaces={workspaces}
                     conversations={visibleConversations}
@@ -899,7 +899,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                                 onSaveAssistantMessage={handleSaveAssistantMessage}
                             />
 
-                            <div className="sticky bottom-0 mt-2.5 rounded-[16px] border border-white/8 bg-slate-950/95 p-2 backdrop-blur-xl sm:mt-3 sm:rounded-[18px]">
+                            <div className="sticky bottom-2 mt-2.5 rounded-[16px] border border-white/8 bg-slate-950/95 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] backdrop-blur-xl sm:bottom-0 sm:mt-3 sm:rounded-[18px] sm:pb-2">
                                 {imageAttachments.length > 0 && (
                                     <div className="mb-2 rounded-[12px] border border-white/6 bg-white/[0.02] p-1.5 sm:rounded-[14px] sm:p-2">
                                         <ImageAttachmentStrip
@@ -934,8 +934,8 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                                         onChange={(e) => setInput(e.target.value)}
                                         placeholder={
                                             mode === "agent"
-                                                ? "Continue the thread with a coding task, repo area, or patch request."
-                                                : "Continue this conversation. Every turn stays in the thread."
+                                                ? "Ask for code, repo, or a patch."
+                                                : "Ask anything in this thread."
                                         }
                                         rows={1}
                                         className="max-h-28 min-h-[42px] flex-1 resize-none rounded-[14px] border border-white/8 bg-white/[0.03] px-3 py-2.5 text-sm leading-5 text-white placeholder-slate-500 outline-none transition focus:border-cyan-300/30 sm:max-h-32 sm:min-h-[46px] sm:px-3.5"
