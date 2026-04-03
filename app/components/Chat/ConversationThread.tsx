@@ -135,7 +135,7 @@ const MessageBubble = memo(function MessageBubble({
     if (message.role === "user") {
         return (
             <div className="flex justify-end">
-                <div className="max-w-[85%] rounded-[24px] border border-cyan-300/12 bg-cyan-300/[0.08] px-4 py-3 shadow-[0_18px_40px_rgba(2,6,23,0.18)] md:max-w-[72%]">
+                <div className="max-w-[92%] rounded-[20px] border border-cyan-300/12 bg-cyan-300/[0.08] px-3.5 py-3 shadow-[0_18px_40px_rgba(2,6,23,0.18)] sm:max-w-[85%] sm:rounded-[24px] sm:px-4 md:max-w-[72%]">
                     <div className="mb-2 flex items-center justify-between gap-3">
                         <div className="inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.28em] text-cyan-100/75">
                             <User size={12} />
@@ -155,7 +155,7 @@ const MessageBubble = memo(function MessageBubble({
                             />
                         </div>
                     )}
-                    <div className="whitespace-pre-wrap text-sm leading-7 text-white">{message.content}</div>
+                    <div className="whitespace-pre-wrap text-sm leading-6 text-white sm:leading-7">{message.content}</div>
                 </div>
             </div>
         );
@@ -164,8 +164,8 @@ const MessageBubble = memo(function MessageBubble({
     if (message.role === "assistant") {
         return (
             <div className="flex justify-start">
-                <div className="w-full max-w-[96%] md:max-w-[92%]">
-                    <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5 text-[10px] uppercase tracking-[0.28em] text-slate-300">
+                <div className="w-full max-w-full sm:max-w-[96%] md:max-w-[92%]">
+                    <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-white/8 bg-white/[0.03] px-2.5 py-1.5 text-[9px] uppercase tracking-[0.24em] text-slate-300 sm:px-3 sm:text-[10px] sm:tracking-[0.28em]">
                         <Bot size={12} />
                         Assistant
                         {message.metadata?.modelUsed?.id ? ` • ${message.metadata.modelUsed.id}` : ""}
@@ -259,13 +259,13 @@ export default function ConversationThread({
 
     if (!messages.length && !loading) {
         return (
-            <div className="flex min-h-[440px] items-center justify-center rounded-[28px] border border-dashed border-white/10 bg-white/[0.02] p-8 text-center">
+            <div className="flex min-h-[340px] items-center justify-center rounded-[22px] border border-dashed border-white/10 bg-white/[0.02] p-6 text-center sm:min-h-[440px] sm:rounded-[28px] sm:p-8">
                 <div className="max-w-xl">
                     <div className="text-[10px] uppercase tracking-[0.34em] text-slate-500">Conversation</div>
-                    <h3 className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-white">
+                    <h3 className="mt-3 text-xl font-semibold tracking-[-0.03em] text-white sm:text-2xl">
                         Start a real thread
                     </h3>
-                    <p className="mt-3 text-sm leading-7 text-slate-400">
+                    <p className="mt-3 text-sm leading-6 text-slate-400 sm:leading-7">
                         Every message you send will stay in this conversation, and the assistant will continue in the same thread like a modern chatbot workspace.
                     </p>
                 </div>
@@ -277,9 +277,9 @@ export default function ConversationThread({
         <div
             ref={scrollContainerRef}
             onScroll={updateAutoScrollPreference}
-            className="message-card max-h-[calc(100vh-320px)] min-h-[440px] overflow-y-auto overflow-x-hidden rounded-[30px] border border-white/8 bg-[radial-gradient(circle_at_top,rgba(148,163,184,0.08),transparent_34%),linear-gradient(180deg,rgba(2,6,23,0.84),rgba(2,6,23,0.72))] p-3 shadow-[0_24px_80px_rgba(2,6,23,0.45)] md:p-4"
+            className="message-card max-h-[calc(100vh-305px)] min-h-[360px] overflow-y-auto overflow-x-hidden rounded-[24px] border border-white/8 bg-[radial-gradient(circle_at_top,rgba(148,163,184,0.08),transparent_34%),linear-gradient(180deg,rgba(2,6,23,0.84),rgba(2,6,23,0.72))] p-2.5 shadow-[0_24px_80px_rgba(2,6,23,0.45)] sm:max-h-[calc(100vh-320px)] sm:min-h-[440px] sm:rounded-[30px] sm:p-3 md:p-4"
         >
-            <div className="mx-auto flex max-w-5xl flex-col gap-5">
+            <div className="mx-auto flex max-w-5xl flex-col gap-4 sm:gap-5">
                 {messages.map((message) => (
                     <MessageBubble
                         key={message.id}

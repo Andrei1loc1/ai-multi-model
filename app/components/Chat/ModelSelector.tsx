@@ -22,7 +22,7 @@ const ModelSelector = ({
     const selected = models.find((model) => model.id === selectedModel);
 
     return (
-        <div className="relative min-w-[180px]">
+        <div className="relative w-full min-w-0 sm:min-w-[180px]">
             <button
                 onClick={() => setIsOpen(!isOpen)}
                 className="flex h-10 w-full items-center justify-between rounded-2xl border border-white/8 bg-slate-950/75 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-300/30"

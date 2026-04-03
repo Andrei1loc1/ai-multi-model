@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
+    ChevronDown,
     FolderPlus,
     GitBranchPlus,
     Plus,
@@ -9,6 +10,7 @@ import {
     ImagePlus,
     Send,
     ShieldCheck,
+    SlidersHorizontal,
     Sparkles,
 } from "lucide-react";
 import ChatWindow from "@/app/components/Chat/ChatWindow";
@@ -137,6 +139,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
     const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
     const [repoUrl, setRepoUrl] = useState("");
     const [showAttachPanel, setShowAttachPanel] = useState(false);
+    const [showMobileControls, setShowMobileControls] = useState(false);
     const [imageAttachments, setImageAttachments] = useState<ChatImageAttachmentDraft[]>([]);
     const [result, setResult] = useState<OrchestratedResponse | null>(null);
     const [statusMessage, setStatusMessage] = useState("Cloud workspace ready.");
@@ -331,6 +334,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         setError(null);
         setRepoUrl("");
         setShowAttachPanel(false);
+        setShowMobileControls(false);
         clearImageAttachments();
         setStatusMessage("Workspace switched. Select a conversation or start a new thread.");
     };
@@ -368,6 +372,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
 
     const handleSelectConversation = (conversationId: string) => {
         setSelectedConversationId(conversationId);
+        setShowMobileControls(false);
     };
 
     const handleDeleteConversation = async (conversationId: string) => {
@@ -633,6 +638,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
             setResult(null);
             setRepoUrl("");
             setShowAttachPanel(false);
+            setShowMobileControls(false);
             clearImageAttachments();
             setStatusMessage(`Workspace ${data.workspace.name} created.`);
             await loadWorkspaceState(data.workspace.id);
@@ -676,6 +682,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
             );
             setRepoUrl("");
             setShowAttachPanel(false);
+            setShowMobileControls(false);
             await loadWorkspaceState();
         } catch (connectError: unknown) {
             setError(connectError instanceof Error ? connectError.message : "Failed to connect repository.");
@@ -714,8 +721,8 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
     }, []);
 
     return (
-        <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-3 px-3 pb-3 pt-16 lg:px-4 lg:pt-6">
-            <div className="grid grid-cols-1 gap-3 xl:grid-cols-[280px_minmax(0,1fr)]">
+        <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-2.5 px-2.5 pb-2.5 pt-16 sm:px-3 lg:px-4 lg:pb-3 lg:pt-6">
+            <div className="grid grid-cols-1 gap-2.5 xl:grid-cols-[280px_minmax(0,1fr)] xl:items-start">
                 <WorkspaceSidebar
                     workspaces={workspaces}
                     conversations={visibleConversations}
@@ -728,24 +735,24 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                     onCreateWorkspace={createWorkspace}
                 />
 
-                <main className="min-w-0 rounded-[30px] border border-white/8 bg-slate-950/74 p-3 shadow-[0_24px_80px_rgba(2,6,23,0.45)] backdrop-blur-2xl">
-                    <div className="grid gap-3">
-                        <section className="rounded-[26px] border border-white/6 bg-white/[0.03] p-4">
-                            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                <main className="min-w-0 rounded-[24px] border border-white/8 bg-slate-950/74 p-2.5 shadow-[0_18px_60px_rgba(2,6,23,0.42)] backdrop-blur-2xl sm:rounded-[28px] sm:p-3">
+                    <div className="grid gap-2.5 sm:gap-3">
+                        <section className="rounded-[22px] border border-white/6 bg-white/[0.03] p-3 sm:rounded-[26px] sm:p-4">
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                                 <div className="min-w-0">
-                                    <h1 className="flex items-center gap-2 text-2xl font-semibold text-white">
+                                    <h1 className="flex items-center gap-2 text-[1.35rem] font-semibold text-white sm:text-2xl">
                                         Multi-Model Cloud Agent
-                                        <Sparkles size={18} className="text-cyan-200" />
+                                        <Sparkles size={17} className="text-cyan-200 sm:h-[18px] sm:w-[18px]" />
                                     </h1>
                                 </div>
 
-                                <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                                     <div className="flex rounded-full border border-white/8 bg-white/[0.03] p-1">
                                         {(["chat", "agent"] as const).map((item) => (
                                             <button
                                                 key={item}
                                                 onClick={() => setMode(item)}
-                                                className={`rounded-full px-4 py-2 text-xs font-medium uppercase tracking-[0.24em] transition ${
+                                                className={`rounded-full px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.24em] transition sm:px-4 sm:py-2 sm:text-xs ${
                                                     mode === item ? "bg-cyan-300/18 text-white" : "text-slate-400"
                                                 }`}
                                             >
@@ -760,7 +767,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                                                 <button
                                                     key={item}
                                                     onClick={() => setExecutionMode(item)}
-                                                    className={`rounded-full px-4 py-2 text-xs font-medium uppercase tracking-[0.24em] transition ${
+                                                    className={`rounded-full px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.24em] transition sm:px-4 sm:py-2 sm:text-xs ${
                                                         executionMode === item ? "bg-violet-300/18 text-white" : "text-slate-400"
                                                     }`}
                                                 >
@@ -773,92 +780,109 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                             </div>
                         </section>
 
-                        <section className="rounded-[24px] border border-white/6 bg-white/[0.03] p-3">
-                            <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
+                        <section className="rounded-[20px] border border-white/6 bg-white/[0.03] p-2.5 sm:rounded-[24px] sm:p-3">
+                            <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
-                                    <div className="mb-1 text-[10px] uppercase tracking-[0.3em] text-slate-500">Active Thread</div>
-                                    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
-                                        <span className="rounded-full border border-white/8 bg-slate-950/50 px-2.5 py-1">
-                                            {selectedWorkspace ? `Workspace: ${selectedWorkspace.name}` : "No workspace"}
+                                    <div className="text-[9px] uppercase tracking-[0.28em] text-slate-500">Active Thread</div>
+                                    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400 sm:text-[11px]">
+                                        <span className="rounded-full border border-white/8 bg-slate-950/55 px-2.5 py-1">
+                                            {selectedWorkspace ? selectedWorkspace.name : "No workspace"}
                                         </span>
-                                        <span className="rounded-full border border-white/8 bg-slate-950/50 px-2.5 py-1">
-                                            Mode: {selectedConversation ? selectedConversation.mode : mode}
+                                        <span className="rounded-full border border-white/8 bg-slate-950/55 px-2.5 py-1">
+                                            {(selectedConversation ? selectedConversation.mode : mode).toUpperCase()}
                                         </span>
                                         {result?.modelUsed?.id && (
-                                            <span className="rounded-full border border-white/8 bg-slate-950/50 px-2.5 py-1">
-                                                Model: {result.modelUsed.id}
+                                            <span className="rounded-full border border-white/8 bg-slate-950/55 px-2.5 py-1">
+                                                {result.modelUsed.id}
                                             </span>
                                         )}
                                     </div>
                                 </div>
 
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <ProviderSelector
-                                        selectedProvider={selectedProvider}
-                                        setSelectedProvider={setSelectedProvider}
-                                    />
-
-                                    <ModelSelector
-                                        selectedModel={selectedModel}
-                                        setSelectedModel={setSelectedModel}
-                                        selectedProvider={selectedProvider}
-                                    />
-
-                                    <button
-                                        onClick={() => setShowAttachPanel((value) => !value)}
-                                        className="inline-flex h-10 items-center gap-2 rounded-2xl border border-white/8 bg-slate-950/75 px-3.5 text-sm text-white transition hover:border-cyan-300/20 hover:bg-slate-900/85"
-                                    >
-                                        <FolderPlus size={16} />
-                                        Attach
-                                    </button>
-
-                                    <button
-                                        onClick={reindexRepo}
-                                        className="inline-flex h-10 items-center gap-2 rounded-2xl border border-white/8 bg-slate-950/75 px-3.5 text-sm text-white transition hover:border-cyan-300/20 hover:bg-slate-900/85"
-                                    >
-                                        <RefreshCcw size={16} />
-                                        Reindex
-                                    </button>
-
-                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowMobileControls((value) => !value)}
+                                    className="inline-flex h-9 shrink-0 items-center gap-2 rounded-2xl border border-white/8 bg-slate-950/75 px-3 text-[11px] font-medium uppercase tracking-[0.2em] text-white transition hover:border-cyan-300/20 hover:bg-slate-900/85 lg:hidden"
+                                >
+                                    <SlidersHorizontal size={14} />
+                                    Controls
+                                    <ChevronDown size={14} className={`transition-transform ${showMobileControls ? "rotate-180" : ""}`} />
+                                </button>
                             </div>
 
-                            {showAttachPanel && (
-                                <div className="mt-4 rounded-[22px] border border-violet-300/10 bg-violet-300/[0.08] p-4">
-                                    <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white">
-                                        <GitBranchPlus size={16} />
-                                        Connect GitHub repository
-                                    </div>
-                                    <div className="flex flex-col gap-2 md:flex-row">
-                                        <input
-                                            value={repoUrl}
-                                            onChange={(e) => setRepoUrl(e.target.value)}
-                                            placeholder="https://github.com/owner/repo"
-                                            className="h-11 flex-1 rounded-2xl border border-white/10 bg-slate-950/70 px-4 text-sm text-white outline-none transition focus:border-cyan-300/30"
+                            <div className={`mt-3 ${showMobileControls ? "block" : "hidden"} lg:mt-0 lg:block`}>
+                                <div className="rounded-[18px] border border-white/6 bg-slate-950/45 p-2.5 sm:rounded-[22px] sm:p-3">
+                                    <div className="mb-2 text-[9px] uppercase tracking-[0.28em] text-slate-500 lg:hidden">Controls</div>
+                                    <div className="grid gap-2 sm:grid-cols-2 2xl:flex 2xl:flex-wrap 2xl:items-center">
+                                        <ProviderSelector
+                                            selectedProvider={selectedProvider}
+                                            setSelectedProvider={setSelectedProvider}
                                         />
+
+                                        <ModelSelector
+                                            selectedModel={selectedModel}
+                                            setSelectedModel={setSelectedModel}
+                                            selectedProvider={selectedProvider}
+                                        />
+
                                         <button
-                                            onClick={connectRepo}
-                                            className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-cyan-300/[0.16] px-4 text-sm font-medium text-white transition hover:bg-cyan-300/[0.24]"
+                                            onClick={() => {
+                                                setShowAttachPanel((value) => !value);
+                                                setShowMobileControls(true);
+                                            }}
+                                            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-white/8 bg-slate-950/75 px-3.5 text-sm text-white transition hover:border-cyan-300/20 hover:bg-slate-900/85"
                                         >
-                                            <Plus size={15} />
-                                            Connect
+                                            <FolderPlus size={16} />
+                                            Attach
+                                        </button>
+
+                                        <button
+                                            onClick={reindexRepo}
+                                            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-white/8 bg-slate-950/75 px-3.5 text-sm text-white transition hover:border-cyan-300/20 hover:bg-slate-900/85"
+                                        >
+                                            <RefreshCcw size={16} />
+                                            Reindex
                                         </button>
                                     </div>
-                                    <p className="mt-2 text-xs leading-5 text-slate-300">
-                                        Attach a repo to improve code context, retrieval and agent output inside this thread.
-                                    </p>
                                 </div>
-                            )}
+
+                                {showAttachPanel && (
+                                    <div className="mt-3 rounded-[20px] border border-violet-300/10 bg-violet-300/[0.08] p-3 sm:rounded-[22px] sm:p-4">
+                                        <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white">
+                                            <GitBranchPlus size={16} />
+                                            Connect GitHub repository
+                                        </div>
+                                        <div className="flex flex-col gap-2 md:flex-row">
+                                            <input
+                                                value={repoUrl}
+                                                onChange={(e) => setRepoUrl(e.target.value)}
+                                                placeholder="https://github.com/owner/repo"
+                                                className="h-10 flex-1 rounded-2xl border border-white/10 bg-slate-950/70 px-3.5 text-sm text-white outline-none transition focus:border-cyan-300/30 sm:h-11 sm:px-4"
+                                            />
+                                            <button
+                                                onClick={connectRepo}
+                                                className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-cyan-300/[0.16] px-4 text-sm font-medium text-white transition hover:bg-cyan-300/[0.24] sm:h-11"
+                                            >
+                                                <Plus size={15} />
+                                                Connect
+                                            </button>
+                                        </div>
+                                        <p className="mt-2 text-xs leading-5 text-slate-300">
+                                            Attach a repo to improve code context, retrieval and agent output inside this thread.
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
                         </section>
 
-                        <section className="rounded-[26px] border border-white/6 bg-white/[0.03] p-3">
-                            <div className="mb-3 flex items-start gap-3 rounded-[22px] border border-white/6 bg-slate-950/45 p-3">
+                        <section className="rounded-[22px] border border-white/6 bg-white/[0.03] p-2.5 sm:rounded-[26px] sm:p-3">
+                            <div className="mb-2.5 flex items-start gap-3 rounded-[18px] border border-white/6 bg-slate-950/45 p-2.5 sm:mb-3 sm:rounded-[22px] sm:p-3">
                                 <div className="mt-0.5 rounded-2xl border border-emerald-300/10 bg-emerald-300/[0.08] p-2 text-emerald-200">
-                                    <ShieldCheck size={16} />
+                                    <ShieldCheck size={15} />
                                 </div>
                                 <div className="min-w-0">
                                     <div className="text-sm font-medium text-white">{statusMessage}</div>
-                                    <div className="mt-1 text-xs leading-5 text-slate-400">
+                                    <div className="mt-1 text-[11px] leading-5 text-slate-400 sm:text-xs">
                                         {result?.taskType ? `Task: ${result.taskType}` : "Thread-first chat enabled."}
                                     </div>
                                     {error && (
@@ -875,9 +899,9 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                                 onSaveAssistantMessage={handleSaveAssistantMessage}
                             />
 
-                            <div className="sticky bottom-0 mt-3 rounded-[18px] border border-white/8 bg-slate-950/94 p-2 backdrop-blur-xl">
+                            <div className="sticky bottom-0 mt-2.5 rounded-[16px] border border-white/8 bg-slate-950/95 p-2 backdrop-blur-xl sm:mt-3 sm:rounded-[18px]">
                                 {imageAttachments.length > 0 && (
-                                    <div className="mb-2 rounded-[14px] border border-white/6 bg-white/[0.02] p-2">
+                                    <div className="mb-2 rounded-[12px] border border-white/6 bg-white/[0.02] p-1.5 sm:rounded-[14px] sm:p-2">
                                         <ImageAttachmentStrip
                                             attachments={imageAttachments}
                                             onRemove={removeImageAttachment}
@@ -886,26 +910,24 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                                     </div>
                                 )}
 
-                                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                                    <div className="flex items-center gap-2">
-                                        <input
-                                            ref={imageInputRef}
-                                            type="file"
-                                            accept="image/*"
-                                            multiple
-                                            className="hidden"
-                                            onChange={handleImageSelection}
-                                        />
+                                <div className="flex items-end gap-2">
+                                    <input
+                                        ref={imageInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        multiple
+                                        className="hidden"
+                                        onChange={handleImageSelection}
+                                    />
 
-                                        <button
-                                            type="button"
-                                            onClick={() => imageInputRef.current?.click()}
-                                            className="inline-flex h-[46px] shrink-0 items-center justify-center gap-2 rounded-[14px] border border-white/8 bg-white/[0.03] px-3.5 text-sm font-medium text-white transition hover:border-cyan-300/20 hover:bg-white/[0.06]"
-                                        >
-                                            <ImagePlus size={16} />
-                                            Attach image
-                                        </button>
-                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => imageInputRef.current?.click()}
+                                        className="inline-flex h-[42px] shrink-0 items-center justify-center gap-2 rounded-[14px] border border-white/8 bg-white/[0.03] px-3 text-sm font-medium text-white transition hover:border-cyan-300/20 hover:bg-white/[0.06] sm:h-[46px] sm:px-3.5"
+                                    >
+                                        <ImagePlus size={16} />
+                                        <span className="hidden sm:inline">Attach image</span>
+                                    </button>
 
                                     <textarea
                                         value={input}
@@ -916,16 +938,16 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                                                 : "Continue this conversation. Every turn stays in the thread."
                                         }
                                         rows={1}
-                                        className="max-h-32 min-h-[46px] flex-1 resize-none rounded-[14px] border border-white/8 bg-white/[0.03] px-3.5 py-2.5 text-sm leading-5 text-white placeholder-slate-500 outline-none transition focus:border-cyan-300/30"
+                                        className="max-h-28 min-h-[42px] flex-1 resize-none rounded-[14px] border border-white/8 bg-white/[0.03] px-3 py-2.5 text-sm leading-5 text-white placeholder-slate-500 outline-none transition focus:border-cyan-300/30 sm:max-h-32 sm:min-h-[46px] sm:px-3.5"
                                     />
 
                                     <button
                                         onClick={sendMessage}
                                         disabled={loading || imageAttachments.some((attachment) => attachment.status === "uploading" || attachment.status === "queued")}
-                                        className="inline-flex h-[46px] shrink-0 items-center justify-center gap-2 rounded-[14px] bg-gradient-to-r from-cyan-400/28 to-violet-400/24 px-4 text-sm font-medium text-white transition hover:from-cyan-400/38 hover:to-violet-400/34 disabled:opacity-50"
+                                        className="inline-flex h-[42px] shrink-0 items-center justify-center gap-2 rounded-[14px] bg-gradient-to-r from-cyan-400/28 to-violet-400/24 px-3.5 text-sm font-medium text-white transition hover:from-cyan-400/38 hover:to-violet-400/34 disabled:opacity-50 sm:h-[46px] sm:px-4"
                                     >
                                         <Send size={16} />
-                                        Send
+                                        <span className="hidden sm:inline">Send</span>
                                     </button>
                                 </div>
                             </div>

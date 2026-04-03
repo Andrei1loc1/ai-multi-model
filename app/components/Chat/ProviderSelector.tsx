@@ -13,7 +13,7 @@ const ProviderSelector = ({
     const selected = ProviderOptions.find((option) => option.id === selectedProvider) || ProviderOptions[0];
 
     return (
-        <div className="relative min-w-[160px]">
+        <div className="relative w-full min-w-0 sm:min-w-[160px]">
             <button
                 onClick={() => setIsOpen((value) => !value)}
                 className="flex h-10 w-full items-center justify-between rounded-2xl border border-white/8 bg-slate-950/75 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-300/30"

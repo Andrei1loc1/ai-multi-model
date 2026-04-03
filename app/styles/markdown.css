@@ -228,3 +228,67 @@
 .response-code-shell pre {
   background: transparent !important;
 }
+
+@media (max-width: 640px) {
+  .response-surface {
+    @apply rounded-[20px] p-3;
+  }
+
+  .response-surface-header {
+    @apply mb-2.5 pb-2;
+  }
+
+  .response-surface-badge,
+  .response-surface-action {
+    @apply text-[9px];
+  }
+
+  .response-surface-body {
+    @apply space-y-2.5;
+  }
+
+  .response-lead,
+  .response-card,
+  .response-callout,
+  .response-editorial-quote {
+    @apply rounded-[18px] px-3 py-3;
+  }
+
+  .response-section-heading {
+    @apply text-[1.04rem];
+  }
+
+  .response-step-item {
+    @apply grid-cols-[28px_minmax(0,1fr)] gap-2 rounded-[16px] p-2;
+  }
+
+  .response-step-badge {
+    @apply h-7 w-7 rounded-[10px] text-[12px];
+  }
+
+  .response-key-point-item {
+    @apply rounded-[14px] px-2.5 py-2;
+  }
+
+  .response-markdown-paragraph,
+  .response-markdown-list-item {
+    @apply text-[0.9rem] leading-6;
+  }
+
+  .response-markdown-heading-1 {
+    @apply text-[1.45rem];
+  }
+
+  .response-markdown-heading-2 {
+    @apply text-[1.06rem];
+  }
+
+  .response-markdown-heading-3 {
+    @apply text-[0.96rem];
+  }
+
+  .response-table-th,
+  .response-table-td {
+    @apply px-3 py-2;
+  }
+}
