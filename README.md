@@ -1,228 +1,315 @@
-# AI Multi-Model Chat Application
+# Multi-Model Cloud Agent
 
-A sophisticated web application built with Next.js that provides a unified interface for interacting with multiple AI language models. Leveraging OpenRouter's API, the app enables seamless conversations with various AI models like Grok, Llama, Gemma, Gemini, and DeepSeek, all within a single, intuitive platform designed for productivity, research, and learning.
+Cloud-first AI workspace built with Next.js, Supabase, OpenRouter, and optional NVIDIA Direct routing.
 
-## 🎯 Purpose & Vision
+The app is no longer just a simple multi-model chat. It now works as an online AI workspace with:
+- full conversation threads
+- `Chat` and `Agent` modes
+- workspace-level memory
+- GitHub repo connection and indexing
+- image attachment analysis
+- saved notes
+- external API key generation
+- installable PWA shell
 
-This application serves as a centralized hub for AI-powered conversations, eliminating the need to switch between different AI platforms. It's designed for:
-- **Researchers** and **students** comparing AI model responses
-- **Developers** testing and prototyping with multiple models
-- **Professionals** using AI for content creation, analysis, and decision-making
-- **Educators** and **learners** organizing AI-generated insights into structured notes
+## What It Does
 
-## 🚀 Key Features
+### Chat Workspace
+- Full thread-based chat, closer to ChatGPT-style conversations
+- Premium response renderer with structured sections, code blocks, tables, and callouts
+- Auto model routing with fallback across candidate models
+- Provider selection for `OpenRouter`, `NVIDIA Direct`, or `All Providers`
 
-### Core Functionality
-- **Multi-Model AI Chat**: Access over 10+ AI models through OpenRouter, including Grok-4.1, Llama-3-8B, Gemma-3-27B, Gemini-2.0, and DeepSeek variants
-- **Intelligent Model Selection**: Choose specific models or use "auto" mode for optimal selection
-- **Real-time Streaming**: Experience live response generation with streaming support for immediate feedback
-- **Markdown Rendering**: Rich text display with syntax highlighting and formatting for code, math, and structured content
+### Memory
+- Short-term working memory from recent conversation turns
+- Persistent memory entries for:
+  - `user`
+  - `workspace`
+  - `conversation`
+  - `repo`
+- Conversation summary refresh for longer threads
 
-### Prompt Engineering
-- **Pre-built Prompt Templates**:
-  - **Instant**: Quick, concise responses
-  - **Detailed**: Comprehensive, structured answers with examples
-  - **Human**: Natural, conversational tone
-  - **Math**: Specialized for mathematical queries with LaTeX support
-  - **Teoretic**: Academic and theoretical explanations
-- **Context-Aware Responses**: Prompts adapt based on conversation history and user intent
+### Repo-Aware AI
+- Create cloud workspaces
+- Connect public GitHub repositories
+- Reindex repo files into retrieval chunks
+- Use repo context in `Agent` mode and explain/code tasks
 
-### Knowledge Management
-- **Note System**: Save and organize AI responses as structured markdown notes
-- **Response Compression**: Condense lengthy outputs for better readability
-- **Firebase Integration**: Cloud-based storage for notes and API keys with real-time synchronization
+### Image Understanding
+- Attach images in chat
+- Upload to Supabase Storage
+- Analyze them through a vision preprocessing layer
+- Pass normalized image context into the final model, even if the final model is not vision-native
 
-### Advanced Capabilities
-- **API Key Management**: Generate and manage secure API keys for external integrations
-- **Error Handling & Redundancy**: Automatic fallback across multiple API keys for uninterrupted service
-- **Responsive Design**: Optimized for desktop and mobile devices with modern UI/UX
-
-## 🛠️ Technology Stack
-
-### Frontend
-- **Next.js 14**: React framework with App Router for optimal performance
-- **TypeScript**: Type-safe development with enhanced developer experience
-- **Tailwind CSS**: Utility-first styling with custom gradients and animations
-
-### Backend & APIs
-- **Next.js API Routes**: Serverless functions for AI interactions and data management
-- **OpenRouter API**: Unified access to multiple AI model providers
-- **Firebase Realtime Database**: NoSQL database for notes and API key storage
-
-### Development Tools
-- **ESLint**: Code quality and consistency
-- **PostCSS**: CSS processing and optimization
-- **Vercel**: Deployment platform with edge computing capabilities
-
-## 📦 Installation & Setup
-
-### Prerequisites
-- Node.js 18+ and npm
-- Firebase project with Realtime Database enabled
-- OpenRouter API keys (multiple recommended for redundancy)
-
-### Quick Start
-
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd ai-multi-model
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Configure environment variables**
-   Create `.env.local` in the root directory:
-   ```env
-   # OpenRouter API Keys (multiple for redundancy)
-   OPENROUTER_API_KEY_1=your_primary_key
-   OPENROUTER_API_KEY_2=your_backup_key_1
-   OPENROUTER_API_KEY_3=your_backup_key_2
-   OPENROUTER_API_KEY_4=your_backup_key_3
-   OPENROUTER_API_KEY_5=your_backup_key_4
-
-   # Firebase Configuration
-   FIREBASE_API_KEY=your_firebase_api_key
-   FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-   FIREBASE_PROJECT_ID=your_project_id
-   FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-   FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-   FIREBASE_APP_ID=your_app_id
-
-   # Optional: Vercel deployment
-   VERCEL_URL=https://your-app.vercel.app
-   ```
-
-4. **Start development server**
-   ```bash
-   npm run dev
-   ```
-
-5. **Access the application**
-   Open [http://localhost:3000](http://localhost:3000) in your browser
-
-## 📖 Usage Guide
-
-### Getting Started
-1. **Landing Page**: Choose between opening the chat interface or generating an API key
-2. **Model Selection**: Use the dropdown to select your preferred AI model or "auto" for intelligent selection
-3. **Prompt Selection**: Choose from pre-built prompt templates or customize as needed
-
-### Chat Workflow
-1. **Compose Message**: Type your query in the input field
-2. **Send & Stream**: Press Enter or click Send to initiate real-time response generation
-3. **View Response**: Responses render in markdown with syntax highlighting
-4. **Save Insights**: Use the save functionality to store valuable responses as notes
-
-### Note Management
-- **Access Notes**: Navigate to the notes page to view saved responses
-- **Add Notes**: Create new notes manually or save from chat responses
-- **Organize**: Notes are stored in Firebase with real-time updates across devices
-
-### API Integration
-- **Generate Keys**: Use the API key generator for external integrations
-- **External Access**: Use `/api/v1/chat` endpoint with Bearer token authentication
-- **Rate Limiting**: Built-in retry logic and error handling for robust API usage
-
-## 🏗️ Architecture Overview
-
-```
-ai-multi-model/
-├── app/                          # Next.js App Router
-│   ├── api/                      # API endpoints
-│   │   ├── ai/route.ts           # Main AI interaction (POST/GET, streaming)
-│   │   ├── v1/chat/route.ts      # Authenticated chat API
-│   │   ├── compress/route.ts     # Response compression
-│   │   └── generate-key/route.ts # API key generation
-│   ├── chat/                     # Main chat interface
-│   │   ├── page.tsx              # Chat page
-│   │   └── ChatUI.tsx            # Chat component orchestration
-│   ├── components/               # Reusable UI components
-│   │   ├── Chat/                 # Chat-specific components
-│   │   │   ├── ChatInput.tsx     # Message input with selectors
-│   │   │   ├── ChatWindow.tsx    # Response display
-│   │   │   ├── ModelSelector.tsx # AI model dropdown
-│   │   │   └── PromptSelector.tsx# Prompt template selector
-│   │   ├── MarkDown/             # Markdown rendering
-│   │   ├── modals/               # Dialog components
-│   │   ├── Navigation/           # App navigation
-│   │   └── notes/                # Note management components
-│   ├── lib/                      # Business logic & utilities
-│   │   ├── AImodels/models.ts    # AI model configurations
-│   │   ├── chatUtils/            # Chat processing utilities
-│   │   │   ├── aiRequest.ts      # OpenRouter API client
-│   │   │   ├── sendMessage.ts    # Message sending logic
-│   │   │   └── getModel.ts       # Model selection logic
-│   │   ├── constants/            # App constants
-│   │   ├── database/firebase.ts  # Firebase configuration
-│   │   └── prompts/              # Prompt template definitions
-│   ├── notes/page.tsx            # Notes management page
-│   └── generateAPI/page.tsx      # API key generation page
-├── public/                       # Static assets
-├── styles/                       # Global stylesheets
-└── package.json                  # Project dependencies
-```
-
-## 🔧 API Endpoints
-
-### Internal Endpoints
-- `POST /api/ai` - Send messages to AI models (supports streaming)
-- `GET /api/ai` - Alternative GET method for AI requests
+### Notes
+- Save assistant answers as notes
+- Browse and manage notes from the notes page
 
 ### External API
-- `POST /api/v1/chat` - Authenticated chat endpoint for external integrations
-  - Requires: `Authorization: Bearer <api-key>`
-  - Body: `{ "prompt": "your message", "model": "optional-model-id" }`
+- Generate API keys
+- Call the app externally through `POST /api/v1/chat`
 
-### Utility Endpoints
-- `/api/compress` - Compress long AI responses
-- `/api/generate-key` - Generate new API keys for external use
+### PWA
+- Installable web app
+- Cached app shell for previously visited pages
+- Offline fallback page
 
-## 🔧 Development Scripts
+## Current Architecture
 
-```bash
-npm run dev      # Start development server
-npm run build    # Build for production
-npm run start    # Start production server
-npm run lint     # Run ESLint checks
+### Frontend
+- Next.js 16 App Router
+- React 19
+- Tailwind CSS 4
+- Custom premium markdown/response renderer
+
+### Backend
+- Next.js route handlers for orchestration, notes, workspaces, image uploads, and external API access
+
+### Data Layer
+- Supabase Postgres for:
+  - workspaces
+  - conversations
+  - conversation messages
+  - memory entries
+  - repo connections
+  - repo chunks
+  - notes
+  - api keys
+  - image assets
+  - image analysis cache/runs
+- Supabase Storage for uploaded images
+
+### AI Providers
+- OpenRouter
+- NVIDIA Direct
+
+## Main Features by Area
+
+### 1. AI Orchestration
+- Task classification: `chat`, `coding`, `explain`, `rewrite`, `search`, `plan`
+- Context assembly from:
+  - current message
+  - recent thread
+  - persistent memory
+  - repo chunks
+  - image context
+  - saved notes
+- Auto model selection with retriable fallback in `Auto` mode
+
+### 2. Provider and Model Support
+- OpenRouter free models
+- NVIDIA Direct models
+- Separate provider selector in chat UI
+- Auto mode can stay inside the selected provider when desired
+
+### 3. Agent Workflow
+- `Chat` mode for direct answers
+- `Agent` mode for repo-aware reasoning and draft code planning
+- Draft-oriented agent artifact generation:
+  - understanding
+  - files used
+  - proposed changes
+  - risks
+  - next step
+
+### 4. GitHub Repo Integration
+- Connect repo to workspace
+- Fetch metadata from GitHub URL
+- Index repository content into searchable chunks
+- Retrieve relevant files for explain/coding tasks
+
+### 5. Image Attachments
+- Upload images from the chat composer
+- Cache image analysis by content hash
+- Vision fallback flow across configured providers
+- Better isolation of image-only questions from unrelated repo/note context
+
+## Project Structure
+
+```text
+app/
+  api/
+    ai/
+    compress/
+    generate-key/
+    images/
+    notes/
+    orchestrate/chat/
+    uploads/image/
+    v1/chat/
+    workspaces/
+  chat/
+  components/
+    Chat/
+    Navigation/
+    PWA/
+    Response/
+    Workspace/
+    notes/
+  lib/
+    agents/
+    AImodels/
+    chatUtils/
+    database/
+    images/
+    memory/
+    orchestrator/
+    response/
+    retrieval/
+    utils/
+    workspaces/
+  manifest.ts
+  offline/
+public/
+  pwa/
+  sw.js
+supabase/
+  schema.sql
+scripts/
+docs/
 ```
 
-## 🤝 Contributing
+## Environment Variables
 
-We welcome contributions! Please follow these steps:
+Create [`.env.local`](C:\Users\Andrei\Desktop\ai-multi-model\.env.local) with the values you use locally.
 
-1. **Fork** the repository
-2. **Create** a feature branch: `git checkout -b feature/your-feature-name`
-3. **Commit** changes: `git commit -m 'Add your feature description'`
-4. **Push** to branch: `git push origin feature/your-feature-name`
-5. **Open** a Pull Request with detailed description
+### Required for cloud data
 
-### Development Guidelines
-- Follow TypeScript best practices
-- Maintain consistent code style with ESLint
-- Add tests for new features
-- Update documentation for API changes
+```env
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+```
 
-## 📄 License
+### AI providers
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for full terms.
+```env
+OPENROUTER_API_KEY_1=...
+OPENROUTER_API_KEY_2=...
+OPENROUTER_API_KEY_3=...
 
-## 📞 Support & Community
+NVIDIA_API_KEY=...
+```
 
-- **Issues**: Report bugs or request features on GitHub Issues
-- **Discussions**: Join community discussions for questions and ideas
-- **Documentation**: Check inline code comments and this README for technical details
+Optional:
 
-## 🙏 Acknowledgments
+```env
+OPENROUTER_VISION_MODEL=...
+NVIDIA_VISION_MODEL=...
+```
 
-- **OpenRouter** for providing unified AI model access
-- **Vercel** for hosting and deployment infrastructure
-- **Firebase** for reliable database services
-- **Next.js** team for the excellent React framework
+### GitHub repo access
 
----
+```env
+GITHUB_TOKEN=...
+```
 
-**Built with ❤️ for the AI-powered future**
+### API info page password
+
+```env
+NEXT_PUBLIC_API_GEN_PASSWORD=...
+```
+
+## Setup
+
+### 1. Install dependencies
+
+```bash
+npm install
+```
+
+### 2. Create Supabase project and run schema
+
+Run the SQL from [supabase/schema.sql](C:\Users\Andrei\Desktop\ai-multi-model\supabase\schema.sql) in the Supabase SQL Editor.
+
+### 3. Add environment variables
+
+Add the variables above locally or in Vercel.
+
+### 4. Start development
+
+```bash
+npm run dev
+```
+
+Open:
+- [http://localhost:3000/chat](http://localhost:3000/chat)
+- [http://localhost:3000/notes](http://localhost:3000/notes)
+- [http://localhost:3000/generateAPI](http://localhost:3000/generateAPI)
+
+## API Usage
+
+### Public chat endpoint
+
+`POST /api/v1/chat`
+
+Headers:
+
+```txt
+Authorization: Bearer <YOUR_API_KEY>
+Content-Type: application/json
+```
+
+Body:
+
+```json
+{
+  "prompt": "Tell me about AI"
+}
+```
+
+Or with a real model id:
+
+```json
+{
+  "prompt": "Explain this code",
+  "model": "qwen3-coder-free"
+}
+```
+
+Example:
+
+```bash
+curl -X POST "https://your-domain.vercel.app/api/v1/chat" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
+  -d '{
+    "prompt": "Tell me about AI"
+  }'
+```
+
+## Development Scripts
+
+```bash
+npm run dev
+npm run build
+npm run start
+npm run lint
+```
+
+## Important Notes
+
+- `.env.local` is ignored by git and should never be committed
+- PWA support currently focuses on installability and cached shell pages, not full offline chat sync
+- Repo integration is currently best suited for public GitHub repositories or token-backed access
+- `Apply` in agent workflows is still draft-oriented, not a full remote PR automation flow
+
+## Deploy
+
+Recommended stack:
+- Vercel for frontend and route handlers
+- Supabase for database and storage
+
+Make sure Vercel has the same environment variables as local development.
+
+## Summary
+
+This repo now represents an online AI workspace rather than a basic chat client. It combines:
+- multi-provider model routing
+- conversation memory
+- repo-aware AI assistance
+- image analysis
+- note capture
+- installable PWA behavior
+
+If you want, the next README improvement I can make is adding screenshots and a short architecture diagram.
