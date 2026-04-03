@@ -98,7 +98,17 @@ function parseHeading(group: string) {
     if (!match) return null;
     return {
         level: match[1].length,
-        text: match[2].trim(),
+        text: normalizeStructuralText(match[2]),
+    };
+}
+
+function parseEmphasisHeading(group: string) {
+    const match = group.trim().match(/^\*\*(.+?)\*\*:?\s*$/);
+    if (!match) return null;
+
+    return {
+        level: 3,
+        text: normalizeStructuralText(match[1]),
     };
 }
 
@@ -120,10 +130,22 @@ function normalizeListItem(line: string) {
     return line.replace(/^(\d+\.|[-*+])\s+/, "").trim();
 }
 
+function normalizeStructuralText(text: string) {
+    const trimmed = text.trim();
+    const emphasisOnlyMatch = trimmed.match(/^\*\*(.+?)\*\*:?\s*$/);
+    const normalized = (emphasisOnlyMatch ? emphasisOnlyMatch[1] : trimmed).trim();
+    return normalized.replace(/:\s*$/, "").trim();
+}
+
 function classifyGroup(group: string): ResponseBlock[] {
     const heading = parseHeading(group);
     if (heading) {
         return [{ type: "heading", level: heading.level, text: heading.text }];
+    }
+
+    const emphasisHeading = parseEmphasisHeading(group);
+    if (emphasisHeading) {
+        return [{ type: "heading", level: emphasisHeading.level, text: emphasisHeading.text }];
     }
 
     const callout = parseCallout(group);
@@ -171,17 +193,17 @@ function classifyGroup(group: string): ResponseBlock[] {
     }
 
     const lines = group.split("\n");
-    if (lines.length > 1 && parseHeading(lines[0].trim())) {
-        const firstHeading = parseHeading(lines[0].trim());
+    if (lines.length > 1) {
+        const firstHeading = parseHeading(lines[0].trim()) || parseEmphasisHeading(lines[0].trim());
         const remainder = lines.slice(1).join("\n").trim();
         const blocks: ResponseBlock[] = [];
         if (firstHeading) {
             blocks.push({ type: "heading", level: firstHeading.level, text: firstHeading.text });
         }
-        if (remainder) {
+        if (firstHeading && remainder) {
             blocks.push(...classifyGroup(remainder));
+            return blocks;
         }
-        return blocks;
     }
 
     return [{ type: "markdown", content: group }];
