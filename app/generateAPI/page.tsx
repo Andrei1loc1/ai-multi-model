@@ -1,160 +1,292 @@
-"use client"
-import React, { useState, useEffect } from 'react';
-import {Braces, Copy, Check, SquareMousePointer} from "lucide-react";
+"use client";
 
-const Page = () => {
+import React, { useEffect, useMemo, useState } from "react";
+import { Braces, Check, Copy, KeyRound, LockKeyhole, SquareMousePointer } from "lucide-react";
+
+const exampleModel = "qwen3-coder-free";
+
+export default function Page() {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [password, setPassword] = useState('');
-    const [loginError, setLoginError] = useState('');
+    const [password, setPassword] = useState("");
+    const [loginError, setLoginError] = useState("");
     const [apiOpen, setApiOpen] = useState(false);
     const [key, setKey] = useState("");
     const [copied, setCopied] = useState(false);
+    const [origin, setOrigin] = useState("https://your-domain.vercel.app");
+
+    useEffect(() => {
+        if (typeof window !== "undefined" && window.location.origin) {
+            setOrigin(window.location.origin);
+        }
+    }, []);
+
+    const requestExample = useMemo(
+        () =>
+            JSON.stringify(
+                {
+                    prompt: "Explain how async/await works in JavaScript.",
+                    model: exampleModel,
+                },
+                null,
+                2
+            ),
+        []
+    );
+
+    const responseExample = useMemo(
+        () =>
+            JSON.stringify(
+                {
+                    success: true,
+                    model: "qwen/qwen3-coder:free",
+                    provider: "openrouter",
+                    text: "async/await is syntax built on top of promises...",
+                    raw: "{provider response object}",
+                },
+                null,
+                2
+            ),
+        []
+    );
+
+    const curlExample = useMemo(
+        () =>
+            `curl -X POST "${origin}/api/v1/chat" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer <YOUR_API_KEY>" \\
+  -d '${requestExample.replace(/\n/g, "\n  ")}'`,
+        [origin, requestExample]
+    );
+
+    const fetchExample = useMemo(
+        () =>
+            `const response = await fetch("${origin}/api/v1/chat", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer <YOUR_API_KEY>"
+  },
+  body: JSON.stringify({
+    prompt: "Explain how async/await works in JavaScript.",
+    model: "${exampleModel}"
+  })
+});
+
+const data = await response.json();`,
+        [origin]
+    );
 
     const handleLogin = () => {
         const correctPassword = process.env.NEXT_PUBLIC_API_GEN_PASSWORD;
         if (password === correctPassword) {
             setIsAuthenticated(true);
-            setLoginError('');
+            setLoginError("");
         } else {
-            setLoginError('Parolă incorectă');
+            setLoginError("Parola incorecta");
         }
+    };
+
+    async function getKey() {
+        setApiOpen(true);
+        setCopied(false);
+
+        try {
+            const response = await fetch("/api/generate-key", { method: "POST" });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "Failed to generate API key.");
+            }
+
+            setKey(data.apiKey || "");
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    const handleCopy = async () => {
+        if (!key) return;
+
+        await navigator.clipboard.writeText(key);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 2000);
     };
 
     if (!isAuthenticated) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gray-900 bg-[linear-gradient(135deg,#0f0f23_0%,#1e293b_20%,#312e81_40%,#1e1b4b_60%,#0f172a_80%,#1e293b_100%)] p-4">
-                <div className="w-full max-w-md bg-white/5 backdrop-blur-md p-8 rounded-2xl shadow-2xl border border-white/10">
-                    <div className="text-center mb-6">
-                        <h2 className="text-2xl font-extrabold bg-gradient-to-r from-purple-200 via-blue-200 to-blue-200 bg-clip-text text-transparent drop-shadow-lg mb-2">
-                            Acces Protejat
-                        </h2>
-                        <p className="text-gray-300 text-sm">Introduceți parola pentru a genera chei API</p>
-                    </div>
-                    <div className="space-y-4">
-                        <div>
+            <div className="min-h-screen bg-[linear-gradient(135deg,#0f0f23_0%,#1e293b_20%,#312e81_40%,#1e1b4b_60%,#0f172a_80%,#1e293b_100%)] p-4">
+                <div className="mx-auto flex min-h-screen max-w-md items-center justify-center">
+                    <div className="w-full rounded-[28px] border border-white/10 bg-white/5 p-8 shadow-2xl backdrop-blur-md">
+                        <div className="mb-6 text-center">
+                            <div className="mx-auto mb-4 inline-flex rounded-2xl border border-white/10 bg-white/5 p-3 text-cyan-100">
+                                <LockKeyhole size={22} />
+                            </div>
+                            <h2 className="mb-2 bg-gradient-to-r from-cyan-100 via-white to-slate-300 bg-clip-text text-2xl font-extrabold text-transparent">
+                                Acces protejat
+                            </h2>
+                            <p className="text-sm text-slate-300">Introdu parola pentru a genera chei API si a vedea documentatia corecta.</p>
+                        </div>
+
+                        <div className="space-y-4">
                             <input
                                 type="password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className="w-full p-3 rounded-xl bg-gray-800/50 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300"
-                                placeholder="Parolă"
+                                className="w-full rounded-2xl border border-white/10 bg-slate-900/60 p-3 text-white placeholder-slate-400 outline-none transition focus:border-cyan-300/30"
+                                placeholder="Parola"
                             />
+
+                            <button
+                                onClick={handleLogin}
+                                className="w-full rounded-2xl bg-gradient-to-r from-cyan-400/28 to-violet-400/24 px-4 py-3 font-semibold text-white transition hover:from-cyan-400/38 hover:to-violet-400/34"
+                            >
+                                Autentificare
+                            </button>
+
+                            {loginError && (
+                                <p className="rounded-2xl border border-red-500/20 bg-red-500/10 p-3 text-center text-sm text-red-300">
+                                    {loginError}
+                                </p>
+                            )}
                         </div>
-                        <button
-                            onClick={handleLogin}
-                            className="w-full py-3 px-4 bg-gradient-to-r from-purple-500/80 to-blue-500/80 hover:from-purple-600/90 hover:to-blue-600/90 text-white font-semibold rounded-xl shadow-lg hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105"
-                        >
-                            Autentificare
-                        </button>
-                        {loginError && (
-                            <div className="text-center">
-                                <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg p-2">{loginError}</p>
-                            </div>
-                        )}
                     </div>
                 </div>
             </div>
         );
     }
 
-    async function getKey() {
-        setApiOpen(true);
-        setCopied(false);
-        try {
-            const response = await fetch("/api/generate-key", { method: 'POST' });
-            const data = await response.json();
-            setKey(data.apiKey);
-        } catch (err) {
-            console.log(err);
-        }
-    }
-
-    const handleCopy = () => {
-        if (key) {
-            navigator.clipboard.writeText(key).then(() => {
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
-            });
-        }
-    };
-
     return (
-        <div className="min-h-screen p-4 flex flex-col items-center pt-10 bg-gray-900 bg-[linear-gradient(135deg,#0f0f23_0%,#1e293b_20%,#312e81_40%,#1e1b4b_60%,#0f172a_80%,#1e293b_100%)]">
-            <div className="w-full max-w-4xl bg-white/3 p-6 rounded-lg shadow-2xl items-center justify-center">
-                <h1 className="text-2xl font-extrabold bg-gradient-to-r from-purple-200 via-blue-200 to-blue-200 bg-clip-text text-transparent drop-shadow-lg">
-                    Generate multi-model <span className="font-mono">API KEY</span>
-                </h1>
+        <div className="min-h-screen bg-[linear-gradient(135deg,#0f0f23_0%,#1e293b_20%,#312e81_40%,#1e1b4b_60%,#0f172a_80%,#1e293b_100%)] p-4">
+            <div className="mx-auto flex max-w-5xl flex-col gap-6 py-8">
+                <section className="rounded-[28px] border border-white/10 bg-white/4 p-6 shadow-2xl backdrop-blur-md">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                        <div>
+                            <div className="mb-2 text-[10px] uppercase tracking-[0.34em] text-cyan-100/70">API info</div>
+                            <h1 className="bg-gradient-to-r from-cyan-100 via-white to-slate-300 bg-clip-text text-3xl font-extrabold text-transparent">
+                                Generate and use your API key
+                            </h1>
+                            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+                                This page documents the real public endpoint exposed by your app so you can integrate it correctly in other apps, scripts, or automations.
+                            </p>
+                        </div>
+
+                        <button
+                            onClick={getKey}
+                            className="inline-flex h-12 items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-400/28 to-violet-400/24 px-5 text-sm font-semibold text-white transition hover:from-cyan-400/38 hover:to-violet-400/34"
+                        >
+                            <SquareMousePointer size={16} />
+                            Generate API key
+                        </button>
+                    </div>
+                </section>
+
+                {apiOpen && (
+                    <section className="rounded-[28px] border border-white/10 bg-white/4 p-6 shadow-2xl backdrop-blur-md">
+                        <div className="mb-4 flex items-center gap-3">
+                            <KeyRound className="text-cyan-200" size={20} />
+                            <h2 className="text-xl font-semibold text-white">Your API key</h2>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-slate-950/80 p-4 font-mono text-sm text-cyan-200">
+                            <span className="min-w-0 flex-1 truncate">{key || "Generating..."}</span>
+                            <button
+                                type="button"
+                                onClick={handleCopy}
+                                disabled={!key}
+                                className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/8 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-200 transition hover:bg-white/[0.08] disabled:opacity-50"
+                            >
+                                {copied ? <Check size={14} className="text-emerald-300" /> : <Copy size={14} />}
+                                {copied ? "Copied" : "Copy"}
+                            </button>
+                        </div>
+                    </section>
+                )}
+
+                <section className="rounded-[28px] border border-white/10 bg-white/4 p-6 shadow-2xl backdrop-blur-md">
+                    <div className="mb-4 flex items-center gap-3">
+                        <Braces className="text-cyan-200" size={20} />
+                        <h2 className="text-xl font-semibold text-white">API documentation</h2>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                        <div className="rounded-[22px] border border-white/8 bg-white/[0.03] p-4">
+                            <div className="mb-2 text-[10px] uppercase tracking-[0.28em] text-slate-400">Endpoint</div>
+                            <code className="text-sm text-cyan-200">{origin}/api/v1/chat</code>
+                        </div>
+
+                        <div className="rounded-[22px] border border-white/8 bg-white/[0.03] p-4">
+                            <div className="mb-2 text-[10px] uppercase tracking-[0.28em] text-slate-400">Method</div>
+                            <code className="text-sm text-cyan-200">POST</code>
+                        </div>
+                    </div>
+
+                    <div className="mt-4 rounded-[22px] border border-amber-300/10 bg-amber-300/[0.08] p-4 text-sm leading-6 text-amber-50">
+                        <strong>Important:</strong> send the API key in the <code className="rounded bg-black/20 px-1.5 py-0.5">Authorization</code> header as <code className="rounded bg-black/20 px-1.5 py-0.5">Bearer YOUR_API_KEY</code>.
+                    </div>
+
+                    <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                        <div className="rounded-[22px] border border-white/8 bg-white/[0.03] p-4">
+                            <div className="mb-2 text-[10px] uppercase tracking-[0.28em] text-slate-400">Request body</div>
+                            <ul className="space-y-2 text-sm leading-6 text-slate-300">
+                                <li><code className="rounded bg-black/20 px-1.5 py-0.5">prompt</code>: required string</li>
+                                <li><code className="rounded bg-black/20 px-1.5 py-0.5">model</code>: optional model id like <code className="rounded bg-black/20 px-1.5 py-0.5">{exampleModel}</code></li>
+                            </ul>
+                            <p className="mt-3 text-sm leading-6 text-slate-400">
+                                If you omit <code className="rounded bg-black/20 px-1.5 py-0.5">model</code>, the server uses its current default available model.
+                            </p>
+                        </div>
+
+                        <div className="rounded-[22px] border border-white/8 bg-white/[0.03] p-4">
+                            <div className="mb-2 text-[10px] uppercase tracking-[0.28em] text-slate-400">Response body</div>
+                            <ul className="space-y-2 text-sm leading-6 text-slate-300">
+                                <li><code className="rounded bg-black/20 px-1.5 py-0.5">success</code>: boolean</li>
+                                <li><code className="rounded bg-black/20 px-1.5 py-0.5">model</code>: provider model slug used on the server</li>
+                                <li><code className="rounded bg-black/20 px-1.5 py-0.5">provider</code>: provider used for the response</li>
+                                <li><code className="rounded bg-black/20 px-1.5 py-0.5">text</code>: final text answer</li>
+                                <li><code className="rounded bg-black/20 px-1.5 py-0.5">raw</code>: raw provider payload</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div className="mt-6">
+                        <div className="mb-2 text-[10px] uppercase tracking-[0.28em] text-slate-400">Headers</div>
+                        <pre className="overflow-x-auto rounded-2xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-cyan-200">{`Content-Type: application/json
+Authorization: Bearer <YOUR_API_KEY>`}</pre>
+                    </div>
+
+                    <div className="mt-6">
+                        <div className="mb-2 text-[10px] uppercase tracking-[0.28em] text-slate-400">Example request JSON</div>
+                        <pre className="overflow-x-auto rounded-2xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-cyan-200">{requestExample}</pre>
+                    </div>
+
+                    <div className="mt-6">
+                        <div className="mb-2 text-[10px] uppercase tracking-[0.28em] text-slate-400">Example response JSON</div>
+                        <pre className="overflow-x-auto rounded-2xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-cyan-200">{responseExample}</pre>
+                    </div>
+
+                    <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                        <div>
+                            <div className="mb-2 text-[10px] uppercase tracking-[0.28em] text-slate-400">cURL example</div>
+                            <pre className="overflow-x-auto rounded-2xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-cyan-200">{curlExample}</pre>
+                        </div>
+
+                        <div>
+                            <div className="mb-2 text-[10px] uppercase tracking-[0.28em] text-slate-400">JavaScript example</div>
+                            <pre className="overflow-x-auto rounded-2xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-cyan-200">{fetchExample}</pre>
+                        </div>
+                    </div>
+
+                    <div className="mt-6 rounded-[22px] border border-white/8 bg-white/[0.03] p-4">
+                        <div className="mb-2 text-[10px] uppercase tracking-[0.28em] text-slate-400">Notes</div>
+                        <ul className="space-y-2 text-sm leading-6 text-slate-300">
+                            <li>This public endpoint is <strong>POST only</strong>.</li>
+                            <li>The current page documents <code className="rounded bg-black/20 px-1.5 py-0.5">/api/v1/chat</code>, not the internal workspace route.</li>
+                            <li>Do not send <code className="rounded bg-black/20 px-1.5 py-0.5">"default"</code> as a model id. Either omit <code className="rounded bg-black/20 px-1.5 py-0.5">model</code> or use a real model id.</li>
+                            <li>If the API key is missing or invalid, the endpoint returns <code className="rounded bg-black/20 px-1.5 py-0.5">401</code>.</li>
+                        </ul>
+                    </div>
+                </section>
             </div>
-            <div className="w-full mt-10 max-w-4xl bg-white/3 p-6 rounded-lg shadow-2xl items-center justify-center">
-                <div className="flex flex-row gap-2 items-center">
-                    <button
-                        onClick={getKey}
-                        className="px-6 py-2 flex items-center text-base rounded-xl tracking-wider text-white bg-[linear-gradient(135deg,theme(colors.purple.500/0.2),theme(colors.indigo.500/0.15),theme(colors.purple.400/0.2))] shover:from-purple-500/30 hover:via-indigo-500/25 hover:to-purple-400/30 hover:scale-102 transition-all duration-300"
-                    >   <SquareMousePointer  className="mr-2"/>
-                        <span className="text-lg font-bold font-mono">{'CLICK '}</span>
-                    </button>
-                    <span className="font-mono text-gray-300"> to generate API Key</span>
-                </div>
-                                 {apiOpen && (<div className="mt-8 p-6 bg-gradient-to-r from-purple-500/10 via-indigo-500/10 to-blue-500/10 rounded-xl shadow-2xl backdrop-blur-sm">
-                                         <div className="flex items-center gap-3 mb-4">
-                                             <Braces className="w-6 h-6 text-purple-300" />
-                                             <h2 className="text-xl font-semibold text-white">Your API Key</h2>
-                                         </div>
-                                         <div className="bg-gray-900/80 flex justify-between items-center p-4 rounded-lg font-mono text-violet-300 text-sm overflow-x-auto shadow-inner">
-                                             <span className="truncate">{key}</span>
-                                             {copied ? (
-                                                 <div className="flex items-center gap-2">
-                                                     <Check className="w-5 h-5 text-green-400" />
-                                                     <span className="text-green-400 text-xs">Copied!</span>
-                                                 </div>
-                                             ) : (
-                                                 <Copy
-                                                     className="hover:text-gray-400 active:scale-90 active:text-violet-300 transition-all duration-100 cursor-pointer"
-                                                     onClick={handleCopy}
-                                                 />
-                                             )}
-                                         </div>
-                                     </div>
-                                 )}
-                                 {apiOpen && (
-                                    <div className="mt-8 p-6 bg-gradient-to-r from-purple-500/10 via-indigo-500/10 to-blue-500/10 rounded-xl shadow-2xl backdrop-blur-sm">
-                                        <div className="flex items-center gap-3 mb-4">
-                                            <Braces className="w-6 h-6 text-purple-300" />
-                                            <h2 className="text-xl font-semibold text-white">How to use your API Key</h2>
-                                        </div>
-                                        <p className="text-sm text-gray-300 mb-4">
-                                            Use your generated API key to access the AI chat functionality from your applications.
-                                            Make a <code className="bg-gray-800 p-1 rounded">POST</code> request to the endpoint <code className="bg-gray-800 p-1 rounded">/api/v1/chat</code>.
-                                        </p>
-                                        <p className="text-sm text-gray-300 mb-2">
-                                            Include your API key in the <code className="bg-gray-800 p-1 rounded">Authorization</code> header:
-                                        </p>
-                                        <pre className="bg-gray-900/80 p-3 rounded-lg font-mono text-violet-300 text-xs overflow-x-auto mb-4">
-                                            Authorization: Bearer {'<YOUR_API_KEY>'}
-                                        </pre>
-                                        <p className="text-sm text-gray-300 mb-2">
-                                            The request body should be a JSON object with <code className="bg-gray-800 p-1 rounded">prompt</code> and optional <code className="bg-gray-800 p-1 rounded">model</code> fields:
-                                        </p>
-                                        <pre className="bg-gray-900/80 p-3 rounded-lg font-mono text-violet-300 text-xs overflow-x-auto mb-4">
-                                            {`
-{
-  "prompt": "Your question for the AI",
-  "model": "default"
-}`}
-                                        </pre>
-                                        <p className="text-sm text-gray-300 mb-2">
-                                            Example using <code className="bg-gray-800 p-1 rounded">curl</code>:
-                                        </p>
-                                        <pre className="bg-gray-900/80 p-3 rounded-lg font-mono text-violet-300 text-xs overflow-x-auto">
-                                            {`curl -X POST \\
-              http://localhost:3000/api/v1/chat \\
-              -H "Content-Type: application/json" \\
-              -H "Authorization: Bearer <YOUR_API_KEY>" \\
-              -d '{ "prompt": "Tell me about AI", "model": "default" }'`}
-                                        </pre>
-                                    </div>
-                                )}            </div>
         </div>
     );
 }
-export default Page;

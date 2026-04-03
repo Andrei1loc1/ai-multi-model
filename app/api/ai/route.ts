@@ -1,10 +1,11 @@
 import {NextRequest, NextResponse} from "next/server";
 import {getModel} from "@/app/lib/chatUtils/getModel";
 import {aiRequest} from "@/app/lib/chatUtils/aiRequest";
+import { getErrorMessage } from "@/app/lib/utils/errors";
 
 interface AIResponse {
     text: string;
-    raw: any;
+    raw: unknown;
 }
 
 export async function POST(req: NextRequest){
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest){
                                         if (content) {
                                             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`));
                                         }
-                                    } catch (e) {}
+                                    } catch {}
                                 }
                             }
                         }
@@ -82,8 +83,8 @@ export async function POST(req: NextRequest){
                 raw: response.raw,
             });
         }
-    } catch (error: any) {
-        const message = error?.message ?? "Unknown error";
+    } catch (error: unknown) {
+        const message = getErrorMessage(error, "Unknown error");
         const isAuth = typeof message === 'string' && message.toLowerCase().includes('authorization');
         const status = isAuth ? 401 : 500;
         return NextResponse.json(
@@ -153,7 +154,7 @@ export async function GET(req: NextRequest) {
                                     if (content) {
                                         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`));
                                     }
-                                } catch (e) {}
+                                } catch {}
                             }
                         }
                     }
@@ -172,8 +173,8 @@ export async function GET(req: NextRequest) {
                 'Connection': 'keep-alive',
             },
         });
-    } catch (error: any) {
-        const message = error?.message ?? 'Unknown error';
+    } catch (error: unknown) {
+        const message = getErrorMessage(error, 'Unknown error');
         const isAuth = typeof message === 'string' && message.toLowerCase().includes('authorization');
         const status = isAuth ? 401 : 500;
         return NextResponse.json(

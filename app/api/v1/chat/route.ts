@@ -1,22 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getModel } from "@/app/lib/chatUtils/getModel";
 import { aiRequest } from "@/app/lib/chatUtils/aiRequest";
-import { db } from '@/app/lib/database/firebase';
-import { ref, query, orderByChild, equalTo, get } from "firebase/database";
+import { validateApiKey as validateStoredApiKey } from "@/app/lib/workspaces/service";
+import { hasSupabaseConfig } from "@/app/lib/database/supabase";
+import { getErrorMessage } from "@/app/lib/utils/errors";
 
 interface AIResponse {
     text: string;
-    raw: any;
+    raw: unknown;
 }
 
 async function validateApiKey(apiKey: string): Promise<boolean> {
-    const apiKeysRef = ref(db, 'apiKeys');
-    const q = query(apiKeysRef, orderByChild('key'), equalTo(apiKey));
-    const snapshot = await get(q);
-    return snapshot.exists();
+    return validateStoredApiKey(apiKey);
 }
 
 export async function POST(req: NextRequest) {
+    if (!hasSupabaseConfig()) {
+        return NextResponse.json({ error: "Supabase is not configured." }, { status: 500 });
+    }
+
     const authHeader = req.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return NextResponse.json({ error: 'Unauthorized: Missing or invalid API key' }, { status: 401 });
@@ -49,11 +51,11 @@ export async function POST(req: NextRequest) {
             text: response.text,
             raw: response.raw,
         });
-    } catch (error: any) {
+    } catch (error: unknown) {
         return NextResponse.json(
             {
                 success: false,
-                error: error.message ?? "Unknown error",
+                error: getErrorMessage(error, "Unknown error"),
             },
             { status: 500 }
         );

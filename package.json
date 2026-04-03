@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.74",
+    "@supabase/supabase-js": "^2.101.1",
     "@tailwindcss/typography": "^0.5.19",
     "ai": "^5.0.104",
     "axios": "^1.13.2",

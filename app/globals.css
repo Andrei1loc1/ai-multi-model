@@ -2,6 +2,20 @@
 @import "tailwindcss";
 @import "./styles/markdown.css";
 
+:root {
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --panel-soft: rgba(255, 255, 255, 0.03);
+  --panel-strong: rgba(2, 6, 23, 0.72);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  color: #e5eefb;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
 }
@@ -21,26 +35,24 @@
 
 /* Modern scrollbar for message cards */
 .message-card::-webkit-scrollbar {
-  width: 6px;
-  margin-right: 8px;
+  width: 8px;
 }
 
 .message-card::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 0 3px 3px 0;
-  margin: 6px 0;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 999px;
+  margin: 8px 0;
 }
 
 .message-card::-webkit-scrollbar-thumb {
-  background: linear-gradient(135deg, #312e81 0%, #1e1b4b 50%, #0f172a 100%);
-  border-radius: 0 3px 3px 0;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-left: none;
+  background: linear-gradient(180deg, rgba(125, 211, 252, 0.52), rgba(15, 23, 42, 0.95));
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .message-card::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(135deg, #4c1d95 0%, #312e81 50%, #1e293b 100%);
-  box-shadow: 0 0 8px rgba(100, 170, 255, 0.3);
+  background: linear-gradient(180deg, rgba(165, 243, 252, 0.64), rgba(15, 23, 42, 1));
+  box-shadow: 0 0 10px rgba(125, 211, 252, 0.24);
 }
 
 /* Model selector dropdown scrollbar */
@@ -49,7 +61,7 @@
 }
 
 .model-selector-dropdown::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.04);
   border-radius: 3px;
 }
 
@@ -61,4 +73,9 @@
 
 .model-selector-dropdown::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(135deg, #4c1d95 0%, #312e81 50%, #1e293b 100%);
+}
+
+.response-surface ::selection {
+  background: rgba(125, 211, 252, 0.22);
+  color: #f8fbff;
 }

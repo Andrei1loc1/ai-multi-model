@@ -2,8 +2,6 @@
 
 import React, { useState, useEffect } from 'react'
 import { File, Search } from "lucide-react";
-import { getDatabase, onValue, ref } from "firebase/database";
-import { db } from "@/app/lib/database/firebase"
 import Note from "@/app/components/notes/Note";
 import AddNote from "@/app/components/notes/AddNote";
 
@@ -11,21 +9,17 @@ const Page = () => {
     const [respons, setRespons] = useState<Array<{id: string, title: string, response: string}>>([]);
 
     useEffect(() => {
-        const responsesRef = ref(db, 'responses');
-        const unsubscribe = onValue(responsesRef, (snapshot) => {
-            const data = snapshot.val();
-            if (data) {
-                const responses: Array<{id: string, title: string, response: string}> = Object.entries(data).map(([key, item]: [string, any]) => ({
-                    id: key,
-                    title: item.title || 'Untitled',
-                    response: item.response
-                }));
-                setRespons(responses);
+        const loadNotes = async () => {
+            try {
+                const response = await fetch("/api/notes", { cache: "no-store" });
+                const data = await response.json();
+                setRespons(data.notes || []);
+            } catch (error) {
+                console.error("Failed to load notes", error);
             }
-        });
-        return () => {
-            unsubscribe();
         };
+
+        void loadNotes();
     }, []);
 
     return (

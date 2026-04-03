@@ -1,17 +1,17 @@
-import crypto from "crypto";
 import {NextResponse} from "next/server";
-import { ref, set, push } from "firebase/database";
-import { db } from '@/app/lib/database/firebase';
+import { createApiKey } from "@/app/lib/workspaces/service";
+import { hasSupabaseConfig } from "@/app/lib/database/supabase";
+import { getErrorMessage } from "@/app/lib/utils/errors";
 
 export async function POST() {
-    const apiKey = crypto.randomUUID();
-    const apiKeysRef = ref(db, 'apiKeys');
-    const newApiKeyRef = push(apiKeysRef);
-    await set(newApiKeyRef, {
-        key: apiKey,
-        createdAt: new Date().toISOString()
-    });
-    return NextResponse.json({
-        apiKey
-    });
+    if (!hasSupabaseConfig()) {
+        return NextResponse.json({ error: "Supabase is not configured." }, { status: 500 });
+    }
+
+    try {
+        const apiKey = await createApiKey();
+        return NextResponse.json({ apiKey });
+    } catch (error: unknown) {
+        return NextResponse.json({ error: getErrorMessage(error, "Failed to generate API key.") }, { status: 500 });
+    }
 }

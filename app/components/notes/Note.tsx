@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 
 import {WandSparkles, X, MoreVertical, Trash2} from 'lucide-react';
-import MarkDownViewer from "@/app/components/MarkDown/MarkDownViewer";
+import ResponseRenderer from "@/app/components/Response/ResponseRenderer";
 import { rewriteDocument } from "@/app/lib/chatUtils/sendMessage";
 import { deleteChatResponse } from "@/app/lib/database/firebase";
 
@@ -67,7 +67,7 @@ const Note = ({ id, title, respon }: { id: string; title: string; respon: string
                         {loading ? 'Rewriting...' : 'AI DOCUMENT REWRITER'}
                         <WandSparkles className="w-4 h-4"/>
                     </button>
-                    <div className="p-6 rounded-2xl bg-gradient-to-br from-white/2 to-white/4 backdrop-blur-xl shadow-[0_4px_25px_rgba(0,0,0,0.45),inset_0_0_25px_rgba(255,255,255,0.03),0_0_10px_rgba(100,170,255,0.05)] text-slate-300 leading-loose transition-all duration-300 hover:shadow-[0_4px_30px_rgba(0,0,0,0.55),0_0_12px_rgba(100,170,255,0.08),inset_0_0_35px_rgba(255,255,255,0.05)] prose prose-invert prose-slate max-w-4xl max-h-96 w-11/12 max-h-[80vh] overflow-y-auto relative">
+                    <div className="relative max-h-[80vh] w-11/12 max-w-5xl overflow-y-auto rounded-[28px] bg-gradient-to-br from-white/2 to-white/4 p-4 text-slate-300 shadow-[0_4px_25px_rgba(0,0,0,0.45),inset_0_0_25px_rgba(255,255,255,0.03),0_0_10px_rgba(100,170,255,0.05)] backdrop-blur-xl transition-all duration-300 hover:shadow-[0_4px_30px_rgba(0,0,0,0.55),0_0_12px_rgba(100,170,255,0.08),inset_0_0_35px_rgba(255,255,255,0.05)]">
                         <div className="flex justify-between items-center mb-4">
                             <h2 className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400 text-2xl font-bold">
                                 {title}
@@ -79,7 +79,7 @@ const Note = ({ id, title, respon }: { id: string; title: string; respon: string
                                 <X size={24} />
                             </button>
                         </div>
-                        <MarkDownViewer respon={currentRespon} />
+                        <ResponseRenderer content={currentRespon} compact />
                     </div>
                 </div>
             )}
@@ -87,4 +87,3 @@ const Note = ({ id, title, respon }: { id: string; title: string; respon: string
     );
 };
 export default Note;
-

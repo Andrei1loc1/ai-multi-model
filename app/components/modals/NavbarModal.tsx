@@ -2,20 +2,26 @@ import React from 'react'
 import Link from "next/link";
 import {routes} from "@/app/lib/constants/AllPageRoutes";
 
-const NavbarModal = ({isOpen, setIsOpen} : {isOpen :boolean, setIsOpen: any}) => {
+const NavbarModal = ({setIsOpen} : {isOpen :boolean, setIsOpen: (isOpen: boolean) => void}) => {
     return (
-        <div className="flex flex-col space-y-2 sm:space-y-3 ml-2 p-3 sm:p-4 bg-white/0 backdrop-blur-md rounded-2xl border border-white/10 shadow-2xl max-w-xs sm:max-w-sm">
+        <div className="absolute left-0 top-14 w-64 rounded-3xl border border-white/10 bg-slate-950/88 p-3 shadow-[0_28px_80px_rgba(2,6,23,0.58)] backdrop-blur-2xl">
+            <div className="mb-3 px-2">
+                <div className="text-[11px] uppercase tracking-[0.35em] text-cyan-200/60">Navigation</div>
+                <div className="mt-1 text-sm text-slate-400">Move fast between chat, notes and key tools.</div>
+            </div>
+            <div className="flex flex-col space-y-2">
             { routes.map((route, index) => {
                 return (
                     <Link href={route.route} key={index}>
                         <button
                             onClick={() => setIsOpen(false)}
-                            className="w-full text-xs sm:text-sm font-bold font-mono tracking-wider px-4 sm:px-6 py-2 sm:py-3 rounded-xl text-white bg-gradient-to-r from-indigo-500/20 to-none hover:from-indigo-500/30 hover:to-indigo-500/5 backdrop-blur-sm border border-white/10 shadow-lg hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105 hover:shadow-[0_0_20px_rgba(147,51,234,0.3)]">
+                            className="w-full rounded-2xl border border-white/8 bg-white/4 px-4 py-3 text-left text-sm font-medium text-slate-200 transition hover:border-cyan-300/20 hover:bg-cyan-300/10 hover:text-white">
                             {route.title}
                         </button>
                     </Link>
                 )
             })}
+            </div>
         </div>
     )
 }

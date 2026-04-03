@@ -2,22 +2,23 @@
 
 import React, { useState } from 'react'
 import NavbarModal from "@/app/components/modals/NavbarModal";
+import { PanelLeft } from "lucide-react";
 
 const Navbar = () => {
     const [isOpen, setIsOpen] = useState(false);
 
     return (
-        <div className="fixed top-4 left-2 sm:left-4 flex flex-row items-center z-50">
-            <div className="w-1 sm:w-2 h-24 sm:h-32 bg-gradient-to-b from-indigo-500/20 to-none rounded-full shadow-lg border border-white/10"></div>
+        <div className="fixed top-4 left-4 z-50">
             {isOpen && (
                 <NavbarModal isOpen={isOpen} setIsOpen={setIsOpen} />
             )}
-                <button
-                    onClick={() => setIsOpen(!isOpen)}
-                    className="ml-2 sm:ml-3 bg-gradient-to-r from-indigo-500/20 to-none backdrop-blur-sm px-2 sm:px-3 py-8 sm:py-12 items-center justify-center rounded-xl border border-white/10 shadow-lg text-white/60 text-base sm:text-lg font-bold hover:text-white hover:from-indigo-500/30 hover:to-indigo-500/5 transition-all duration-300 transform hover:scale-105"
-                >
-                    {isOpen ? '<' : '>'}
-                </button>
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                aria-label="Toggle navigation"
+                className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-slate-950/70 text-white/70 shadow-[0_16px_40px_rgba(15,23,42,0.35)] backdrop-blur-xl transition-all duration-200 hover:border-cyan-300/20 hover:bg-slate-900/85 hover:text-white"
+            >
+                <PanelLeft size={18} />
+            </button>
         </div>
     )
 }

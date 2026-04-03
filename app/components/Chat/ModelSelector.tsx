@@ -1,32 +1,59 @@
 import React, { useState } from 'react';
-import { PublicModelIds } from '@/app/lib/AImodels/models';
+import { getModelsForProvider, ProviderFilter } from '@/app/lib/AImodels/models';
 import { ChevronDown } from 'lucide-react';
 
-const ModelSelector = ({ selectedModel, setSelectedModel }: { selectedModel: string, setSelectedModel: (model: string) => void }) => {
+const providerLabel: Record<ProviderFilter, string> = {
+    all: "Best overall",
+    openrouter: "OpenRouter only",
+    "nvidia-direct": "NVIDIA Direct only",
+};
+
+const ModelSelector = ({
+    selectedModel,
+    setSelectedModel,
+    selectedProvider = "all",
+}: {
+    selectedModel: string;
+    setSelectedModel: (model: string) => void;
+    selectedProvider?: ProviderFilter;
+}) => {
     const [isOpen, setIsOpen] = useState(false);
-    const models = ["auto", ...PublicModelIds];
+    const models = getModelsForProvider(selectedProvider);
+    const selected = models.find((model) => model.id === selectedModel);
 
     return (
-        <div className="relative">
+        <div className="relative min-w-[180px]">
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="px-4 py-2 text-white rounded-xl shadow-2xl bg-white/5 outline-none focus:bg-white/10 flex items-center justify-between w-full"
+                className="flex h-10 w-full items-center justify-between rounded-2xl border border-white/8 bg-slate-950/75 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-300/30"
             >
-                {selectedModel}
+                <span className="truncate">{selected ? selected.label : `Auto (${providerLabel[selectedProvider]})`}</span>
                 <ChevronDown className={`ml-2 transition-transform ${isOpen ? 'rotate-180' : ''}`} size={16} />
             </button>
             {isOpen && (
-                <ul className="absolute top-full mt-1 w-48 bg-black/40 text-white rounded-xl shadow-2xl max-h-40 overflow-y-auto overflow-x-hidden z-10 model-selector-dropdown">
+                <ul className="model-selector-dropdown absolute top-full z-20 mt-2 max-h-52 w-full overflow-y-auto overflow-x-hidden rounded-2xl border border-white/10 bg-slate-950/96 p-1.5 text-white shadow-[0_24px_60px_rgba(2,6,23,0.45)]">
+                    <li
+                        onClick={() => {
+                            setSelectedModel("auto");
+                            setIsOpen(false);
+                        }}
+                        className="cursor-pointer rounded-xl px-3 py-2 text-sm hover:bg-white/8"
+                    >
+                        Auto ({providerLabel[selectedProvider]})
+                    </li>
                     {models.map((model) => (
                         <li
-                            key={model}
+                            key={model.id}
                             onClick={() => {
-                                setSelectedModel(model);
+                                setSelectedModel(model.id);
                                 setIsOpen(false);
                             }}
-                            className="px-4 py-2 hover:bg-white/10 cursor-pointer"
+                            className="cursor-pointer rounded-xl px-3 py-2 text-sm hover:bg-white/8"
                         >
-                            {model}
+                            <div className="truncate">{model.label}</div>
+                            <div className="mt-1 text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                                {model.provider === "nvidia-direct" ? "NVIDIA Direct" : "OpenRouter"}
+                            </div>
                         </li>
                     ))}
                 </ul>

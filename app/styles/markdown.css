@@ -1,152 +1,230 @@
-.prose table {
-  @apply w-full border-collapse border border-slate-600/40 rounded-lg overflow-hidden bg-slate-900/40 shadow-lg;
+.response-surface {
+  @apply rounded-[24px] border border-white/8 bg-white/[0.03] p-3.5 text-slate-100 md:p-4;
+  background:
+    radial-gradient(circle at top, rgba(125, 211, 252, 0.08), transparent 26%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
 }
 
-.prose th {
-  @apply bg-slate-800/70 text-white font-semibold text-xs uppercase tracking-wide p-2.5 text-left border-b border-slate-600/40;
+.response-surface-compact {
+  @apply p-3 md:p-3.5;
 }
 
-.prose td {
-  @apply p-2 border-b border-slate-600/25 text-slate-200 text-sm;
+.response-surface-header {
+  @apply mb-4 flex items-start justify-between gap-2.5 border-b border-white/8 pb-3;
 }
 
-.prose tr:nth-child(even) {
-  @apply bg-slate-800/25;
+.response-surface-header-minimal {
+  @apply mb-3 justify-end pb-2.5;
 }
 
-.prose tr:hover {
-  @apply bg-slate-700/25;
+.response-surface-kicker {
+  @apply text-[10px] uppercase tracking-[0.34em] text-cyan-100/60;
 }
 
-.prose hr {
-  @apply border-slate-600/50 my-3;
+.response-surface-title {
+  @apply mt-1 text-sm font-medium text-slate-100;
 }
 
-.prose img {
-  @apply rounded-lg shadow-lg max-w-full h-auto;
+.response-surface-badge {
+  @apply rounded-full border border-white/8 bg-white/[0.04] px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-slate-300;
 }
 
-/* Code block styling */
-.prose pre {
-  @apply relative bg-slate-900 border border-slate-700/50 rounded-xl p-4 overflow-x-auto shadow-lg;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  box-shadow:
-    0 4px 6px -1px rgba(0, 0, 0, 0.3),
-    0 2px 4px -1px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+.response-surface-header-inline {
+  @apply flex items-center gap-2;
 }
 
-.prose pre::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent 0%, rgba(59, 130, 246, 0.5) 50%, transparent 100%);
+.response-surface-action {
+  @apply inline-flex items-center gap-1.5 rounded-full border border-cyan-300/14 bg-cyan-300/[0.08] px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-cyan-100 transition hover:bg-cyan-300/[0.14];
 }
 
-.prose pre code {
-  @apply bg-transparent p-0 text-sm leading-relaxed;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', 'Cascadia Code', monospace;
-  font-feature-settings: 'liga' 1, 'calt' 1;
+.response-surface-body {
+  @apply space-y-3;
 }
 
-/* SyntaxHighlighter customizations */
-.prose pre:hover {
-  box-shadow:
-    0 8px 25px -5px rgba(0, 0, 0, 0.4),
-    0 4px 6px -1px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15);
-  transform: translateY(-1px);
-  transition: all 0.2s ease-in-out;
+.response-flow-block {
+  @apply rounded-[22px] border border-transparent px-0 py-0;
 }
 
-.prose pre .language-label {
-  transition: opacity 0.2s ease-in-out;
+.response-lead {
+  @apply rounded-[20px] border border-cyan-200/8 bg-[linear-gradient(180deg,rgba(125,211,252,0.10),rgba(255,255,255,0.02))] px-3.5 py-3.5 md:px-4;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
-.prose pre:hover .language-label {
-  opacity: 0.8;
+.response-lead .response-markdown-paragraph {
+  @apply text-[0.98rem] leading-7 text-slate-50 md:text-[1rem];
 }
 
-.prose code:not(pre code) {
-  @apply bg-gradient-to-r from-slate-700/60 to-slate-600/60 px-2 py-0.5 rounded-md text-xs font-mono text-blue-200 border border-slate-600/30;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', 'Cascadia Code', monospace;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+.response-section-heading-wrap {
+  @apply pt-1;
 }
 
-.prose h1 {
-  @apply text-3xl font-extrabold mb-3 mt-4 first:mt-0;
-  background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 50%, #cbd5e1 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
-  letter-spacing: -0.025em;
-  position: relative;
+.response-section-kicker {
+  @apply mb-1 text-[9px] uppercase tracking-[0.3em] text-slate-500;
 }
 
-.prose h1::after {
-  content: '';
-  position: absolute;
-  bottom: -8px;
-  left: 0;
-  width: 60px;
-  height: 3px;
-  background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #06b6d4 100%);
-  border-radius: 2px;
-  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+.response-section-heading {
+  @apply text-[1.18rem] font-semibold tracking-[-0.03em] text-white md:text-[1.3rem];
 }
 
-.prose h2 {
-  @apply text-xl font-bold text-white mb-1.5 mt-3 first:mt-0;
+.response-card {
+  @apply rounded-[20px] border border-white/8 bg-white/[0.025] p-3.5 md:p-4;
 }
 
-.prose h3 {
-  @apply text-lg font-bold text-white mb-1.5 mt-2 first:mt-0;
+.response-card-table {
+  @apply overflow-hidden px-0 py-0;
 }
 
-.prose h4 {
-  @apply text-lg font-semibold text-white mb-1 mt-1.5 first:mt-0;
+.response-card-label {
+  @apply mb-3 text-[9px] uppercase tracking-[0.3em] text-slate-500;
 }
 
-.prose p {
-  @apply mb-2 leading-snug text-slate-200;
+.response-steps {
+  @apply space-y-2.5;
 }
 
-.prose ul {
-  @apply mb-2 ml-4 list-disc text-slate-200 space-y-0.5;
+.response-step-item {
+  @apply grid grid-cols-[32px_minmax(0,1fr)] gap-2.5 rounded-[18px] border border-white/6 bg-slate-950/45 p-2.5 md:p-3;
 }
 
-.prose ol {
-  @apply mb-2 ml-4 list-decimal text-slate-200 space-y-0.5;
+.response-step-badge {
+  @apply flex h-8 w-8 items-center justify-center rounded-xl border border-cyan-200/12 bg-cyan-200/[0.10] text-[13px] font-semibold text-cyan-100;
 }
 
-.prose li {
-  @apply leading-snug;
+.response-step-content,
+.response-key-point-content {
+  @apply min-w-0;
 }
 
-/* Blockquote styling */
-.prose blockquote {
-  @apply border-l-4 border-blue-400/50 pl-3 my-2 italic text-slate-300 bg-slate-800/20 py-1.5 rounded-r text-sm leading-snug;
+.response-key-points {
+  @apply space-y-2;
 }
 
-/* Link styling */
-.prose a {
-  @apply text-blue-400 hover:text-blue-300 underline decoration-blue-400/50 hover:decoration-blue-300 transition-colors;
+.response-key-point-item {
+  @apply grid grid-cols-[9px_minmax(0,1fr)] gap-2.5 rounded-[16px] border border-white/6 bg-white/[0.02] px-3 py-2.5;
 }
 
-/* Text formatting */
-.prose strong {
-  @apply font-bold text-white;
+.response-key-point-dot {
+  @apply mt-2 h-2 w-2 rounded-full bg-cyan-200/80;
+  box-shadow: 0 0 14px rgba(125, 211, 252, 0.35);
 }
 
-.prose em {
-  @apply italic text-slate-300;
+.response-callout {
+  @apply rounded-[20px] border p-3.5 md:p-4;
 }
 
-/* Task list styling */
-.prose input[type="checkbox"] {
-  @apply mr-2 accent-blue-500;
+.response-callout-header {
+  @apply mb-2.5 flex items-center gap-2 text-[13px] font-semibold text-white;
+}
+
+.response-callout-important {
+  @apply border-cyan-200/14 bg-cyan-200/[0.08];
+}
+
+.response-callout-warning {
+  @apply border-amber-200/16 bg-amber-200/[0.08];
+}
+
+.response-callout-note {
+  @apply border-slate-200/10 bg-slate-200/[0.05];
+}
+
+.response-callout-recommendation {
+  @apply border-emerald-200/14 bg-emerald-200/[0.08];
+}
+
+.response-callout-next-step {
+  @apply border-violet-200/14 bg-violet-200/[0.08];
+}
+
+.response-editorial-quote {
+  @apply rounded-[20px] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))] px-3.5 py-3.5 md:px-4;
+}
+
+.response-code-block {
+  @apply my-0.5;
+}
+
+.response-markdown {
+  @apply max-w-none text-slate-200;
+}
+
+.response-markdown-heading {
+  @apply text-white tracking-[-0.02em];
+}
+
+.response-markdown-heading-1 {
+  @apply mb-3 mt-5 text-[1.7rem] font-semibold first:mt-0;
+}
+
+.response-markdown-heading-2 {
+  @apply mb-2.5 mt-4 text-[1.15rem] font-semibold first:mt-0;
+}
+
+.response-markdown-heading-3 {
+  @apply mb-2 mt-3.5 text-[1rem] font-semibold first:mt-0;
+}
+
+.response-markdown-paragraph {
+  @apply mb-2.5 text-[0.94rem] leading-6.5 text-slate-200 last:mb-0;
+}
+
+.response-markdown-list {
+  @apply mb-2.5 space-y-1 text-slate-200;
+}
+
+.response-markdown-list-ul {
+  @apply ml-5 list-disc;
+}
+
+.response-markdown-list-ol {
+  @apply ml-5 list-decimal;
+}
+
+.response-markdown-list-item {
+  @apply pl-1 leading-6.5;
+}
+
+.response-markdown-quote {
+  @apply rounded-r-xl border-l-2 border-cyan-200/30 bg-white/[0.02] px-3.5 py-2.5 text-slate-300;
+}
+
+.response-inline-code {
+  @apply rounded-md border border-white/8 bg-slate-900/70 px-1.5 py-0.5 text-[0.84em] text-cyan-100;
+  font-family: "JetBrains Mono", "Fira Code", "Monaco", "Cascadia Code", monospace;
+}
+
+.response-markdown-link {
+  @apply text-cyan-200 underline decoration-cyan-200/35 underline-offset-4 transition hover:text-cyan-100;
+}
+
+.response-divider {
+  @apply my-3 border-white/8;
+}
+
+.response-table-wrap {
+  @apply overflow-x-auto;
+}
+
+.response-table {
+  @apply w-full border-collapse;
+}
+
+.response-table-head {
+  @apply border-b border-white/8 bg-white/[0.04];
+}
+
+.response-table-th {
+  @apply px-3.5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-300;
+}
+
+.response-table-td {
+  @apply border-b border-white/6 px-3.5 py-2.5 text-[13px] leading-5.5 text-slate-200;
+}
+
+.response-table tr:last-child .response-table-td {
+  @apply border-b-0;
+}
+
+.response-code-shell pre {
+  background: transparent !important;
 }
