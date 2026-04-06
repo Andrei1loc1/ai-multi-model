@@ -2,47 +2,58 @@
 
 Cloud-first AI workspace built with Next.js, Supabase, OpenRouter, and optional NVIDIA Direct routing.
 
-The app is no longer just a simple multi-model chat. It now works as an online AI workspace with:
+This project is no longer a simple multi-model prompt box. It is now an online AI workspace with:
 - full conversation threads
 - `Chat` and `Agent` modes
-- workspace-level memory
+- persistent memory
 - GitHub repo connection and indexing
-- image attachment analysis
+- image attachments with vision preprocessing
 - saved notes
-- external API key generation
-- installable PWA shell
+- public API key generation
+- installable PWA support
+- a mobile-first chat layout while keeping the desktop workspace intact
 
-## What It Does
+## Core Experience
 
 ### Chat Workspace
-- Full thread-based chat, closer to ChatGPT-style conversations
-- Premium response renderer with structured sections, code blocks, tables, and callouts
+- Thread-based chat closer to ChatGPT/Claude behavior
+- Premium response renderer with sections, steps, code blocks, tables, and callouts
 - Auto model routing with fallback across candidate models
 - Provider selection for `OpenRouter`, `NVIDIA Direct`, or `All Providers`
 
+### Agent Mode
+- Repo-aware reasoning and drafting inside the same thread
+- Draft-oriented agent artifacts for coding tasks:
+  - understanding
+  - files used
+  - proposed changes
+  - risks
+  - next step
+- `Apply` is still draft-oriented and does not yet automate a remote PR flow
+
 ### Memory
-- Short-term working memory from recent conversation turns
-- Persistent memory entries for:
+- Recent thread memory for follow-up questions
+- Persistent memory entries across:
   - `user`
   - `workspace`
   - `conversation`
   - `repo`
-- Conversation summary refresh for longer threads
+- Summary-style long-term memory updates for longer threads
 
 ### Repo-Aware AI
 - Create cloud workspaces
-- Connect public GitHub repositories
+- Connect GitHub repositories by URL
 - Reindex repo files into retrieval chunks
-- Use repo context in `Agent` mode and explain/code tasks
+- Use repo context in explain and coding tasks
 
 ### Image Understanding
 - Attach images in chat
-- Upload to Supabase Storage
+- Upload them to Supabase Storage
 - Analyze them through a vision preprocessing layer
-- Pass normalized image context into the final model, even if the final model is not vision-native
+- Pass normalized image context to the final model, even when the final model is not vision-native
 
 ### Notes
-- Save assistant answers as notes
+- Save an assistant answer as a note
 - Browse and manage notes from the notes page
 
 ### External API
@@ -51,19 +62,33 @@ The app is no longer just a simple multi-model chat. It now works as an online A
 
 ### PWA
 - Installable web app
-- Cached app shell for previously visited pages
+- Cached shell for previously visited pages
 - Offline fallback page
 
-## Current Architecture
+## UI Status
+
+### Desktop
+- Workspace-style layout stays the main experience
+- Sidebar, thread view, provider/model controls, and premium response cards remain desktop-first visually
+
+### Mobile
+- Chat page is now mobile-first
+- `AI Control` is collapsible on small screens
+- Thread metadata and controls are compacted
+- Composer sits higher and uses shorter placeholders
+- Layout uses overflow protection and consistent dark overscroll background
+
+## Architecture
 
 ### Frontend
 - Next.js 16 App Router
 - React 19
 - Tailwind CSS 4
 - Custom premium markdown/response renderer
+- Responsive chat workspace with mobile-first refinements
 
 ### Backend
-- Next.js route handlers for orchestration, notes, workspaces, image uploads, and external API access
+- Next.js route handlers for orchestration, workspaces, notes, image uploads, repo integration, and external API access
 
 ### Data Layer
 - Supabase Postgres for:
@@ -73,20 +98,27 @@ The app is no longer just a simple multi-model chat. It now works as an online A
   - memory entries
   - repo connections
   - repo chunks
-  - notes
-  - api keys
+  - saved notes (`responses`)
+  - API keys
   - image assets
-  - image analysis cache/runs
+  - image analysis cache
+  - image analysis runs
 - Supabase Storage for uploaded images
 
 ### AI Providers
 - OpenRouter
 - NVIDIA Direct
 
-## Main Features by Area
+## Main Capabilities
 
 ### 1. AI Orchestration
-- Task classification: `chat`, `coding`, `explain`, `rewrite`, `search`, `plan`
+- Task classification:
+  - `chat`
+  - `coding`
+  - `explain`
+  - `rewrite`
+  - `search`
+  - `plan`
 - Context assembly from:
   - current message
   - recent thread
@@ -94,50 +126,62 @@ The app is no longer just a simple multi-model chat. It now works as an online A
   - repo chunks
   - image context
   - saved notes
-- Auto model selection with retriable fallback in `Auto` mode
+- Auto model selection with retry/fallback across models in `Auto` mode
 
-### 2. Provider and Model Support
+### 2. Provider and Model Routing
 - OpenRouter free models
 - NVIDIA Direct models
-- Separate provider selector in chat UI
-- Auto mode can stay inside the selected provider when desired
+- Provider filter in chat UI
+- `Auto` can stay inside the selected provider group
 
-### 3. Agent Workflow
-- `Chat` mode for direct answers
-- `Agent` mode for repo-aware reasoning and draft code planning
-- Draft-oriented agent artifact generation:
-  - understanding
-  - files used
-  - proposed changes
-  - risks
-  - next step
-
-### 4. GitHub Repo Integration
+### 3. Repo Integration
 - Connect repo to workspace
 - Fetch metadata from GitHub URL
 - Index repository content into searchable chunks
-- Retrieve relevant files for explain/coding tasks
+- Retrieve relevant files for explain/coding flows
 
-### 5. Image Attachments
-- Upload images from the chat composer
+### 4. Image Attachments
+- Upload images from the composer
 - Cache image analysis by content hash
-- Vision fallback flow across configured providers
-- Better isolation of image-only questions from unrelated repo/note context
+- Route image preprocessing through configured providers
+- Isolate image-only questions from unrelated repo or note context
+
+### 5. Public API
+- Generate API keys from the app
+- Validate keys server-side in `/api/v1/chat`
+- Use prompt-only requests or override with a real model id
+
+## Routes
+
+### Pages
+- `/`
+- `/chat`
+- `/notes`
+- `/generateAPI`
+- `/offline`
+
+### Main API routes
+- `POST /api/orchestrate/chat`
+- `POST /api/v1/chat`
+- `POST /api/generate-key`
+- `GET/POST /api/workspaces`
+- `DELETE /api/workspaces/:id`
+- `POST /api/workspaces/:id/connect-repo`
+- `POST /api/workspaces/:id/reindex`
+- `GET /api/workspaces/:id/search`
+- `GET /api/workspaces/:id/context`
+- `GET/DELETE /api/workspaces/conversations/:id`
+- `GET/POST /api/notes`
+- `DELETE /api/notes/:id`
+- `POST /api/uploads/image`
+- `POST /api/images/analyze`
+- `DELETE /api/images/:id`
 
 ## Project Structure
 
 ```text
 app/
   api/
-    ai/
-    compress/
-    generate-key/
-    images/
-    notes/
-    orchestrate/chat/
-    uploads/image/
-    v1/chat/
-    workspaces/
   chat/
   components/
     Chat/
@@ -147,7 +191,6 @@ app/
     Workspace/
     notes/
   lib/
-    agents/
     AImodels/
     chatUtils/
     database/
@@ -156,24 +199,24 @@ app/
     orchestrator/
     response/
     retrieval/
-    utils/
     workspaces/
   manifest.ts
   offline/
 public/
   pwa/
   sw.js
+scripts/
+  build.cjs
 supabase/
   schema.sql
-scripts/
 docs/
 ```
 
 ## Environment Variables
 
-Create [`.env.local`](C:\Users\Andrei\Desktop\ai-multi-model\.env.local) with the values you use locally.
+Create `.env.local` in the project root for local development.
 
-### Required for cloud data
+### Required for Supabase
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=...
@@ -198,17 +241,19 @@ OPENROUTER_VISION_MODEL=...
 NVIDIA_VISION_MODEL=...
 ```
 
-### GitHub repo access
+### GitHub access
 
 ```env
 GITHUB_TOKEN=...
 ```
 
-### API info page password
+### API info page gate
 
 ```env
 NEXT_PUBLIC_API_GEN_PASSWORD=...
 ```
+
+Note: `NEXT_PUBLIC_API_GEN_PASSWORD` protects the info page UI, not the public chat API itself.
 
 ## Setup
 
@@ -220,9 +265,9 @@ npm install
 
 ### 2. Create Supabase project and run schema
 
-Run the SQL from [supabase/schema.sql](C:\Users\Andrei\Desktop\ai-multi-model\supabase\schema.sql) in the Supabase SQL Editor.
+Run the SQL from `supabase/schema.sql` in the Supabase SQL Editor.
 
-### 3. Add environment variables
+### 3. Configure environment variables
 
 Add the variables above locally or in Vercel.
 
@@ -237,20 +282,22 @@ Open:
 - [http://localhost:3000/notes](http://localhost:3000/notes)
 - [http://localhost:3000/generateAPI](http://localhost:3000/generateAPI)
 
-## API Usage
+## Public API Usage
 
-### Public chat endpoint
+### Endpoint
 
 `POST /api/v1/chat`
 
-Headers:
+### Headers
 
 ```txt
 Authorization: Bearer <YOUR_API_KEY>
 Content-Type: application/json
 ```
 
-Body:
+### Request body
+
+Minimal request:
 
 ```json
 {
@@ -258,7 +305,7 @@ Body:
 }
 ```
 
-Or with a real model id:
+With explicit model:
 
 ```json
 {
@@ -267,7 +314,7 @@ Or with a real model id:
 }
 ```
 
-Example:
+### Example
 
 ```bash
 curl -X POST "https://your-domain.vercel.app/api/v1/chat" \
@@ -278,7 +325,7 @@ curl -X POST "https://your-domain.vercel.app/api/v1/chat" \
   }'
 ```
 
-## Development Scripts
+## Scripts
 
 ```bash
 npm run dev
@@ -287,14 +334,7 @@ npm run start
 npm run lint
 ```
 
-## Important Notes
-
-- `.env.local` is ignored by git and should never be committed
-- PWA support currently focuses on installability and cached shell pages, not full offline chat sync
-- Repo integration is currently best suited for public GitHub repositories or token-backed access
-- `Apply` in agent workflows is still draft-oriented, not a full remote PR automation flow
-
-## Deploy
+## Deployment
 
 Recommended stack:
 - Vercel for frontend and route handlers
@@ -302,14 +342,21 @@ Recommended stack:
 
 Make sure Vercel has the same environment variables as local development.
 
+## Current Limits
+
+- PWA support is focused on installability and cached shell pages, not full offline chat sync
+- Repo integration is best suited for public GitHub repositories or token-backed access
+- `Apply` in agent workflows is still draft-oriented
+- The API info page is UI-gated, but production-grade auth around key management can still be tightened further
+
 ## Summary
 
 This repo now represents an online AI workspace rather than a basic chat client. It combines:
 - multi-provider model routing
-- conversation memory
+- persistent conversation memory
 - repo-aware AI assistance
-- image analysis
+- image understanding
 - note capture
+- public API access
 - installable PWA behavior
-
-If you want, the next README improvement I can make is adding screenshots and a short architecture diagram.
+- a responsive mobile-first chat experience
