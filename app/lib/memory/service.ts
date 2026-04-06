@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { getModel } from "@/app/lib/chatUtils/getModel";
 import { aiRequest } from "@/app/lib/chatUtils/aiRequest";
 import { modelProfiles } from "@/app/lib/orchestrator/modelProfiles";
+import type { MemoryEntryRecord } from "@/app/lib/database/supabase";
 import {
     addConversationMessage,
     getConversationMessages,
@@ -57,8 +58,13 @@ export async function persistConversationTurn(params: {
     assistantAnswer: string;
     assistantMetadata?: Record<string, unknown> | null;
 }) {
-    await addConversationMessage(params.conversationId, "user", params.userMessage, params.userMetadata || null);
-    await addConversationMessage(
+    const userMessageRecord = await addConversationMessage(
+        params.conversationId,
+        "user",
+        params.userMessage,
+        params.userMetadata || null
+    );
+    const assistantMessageRecord = await addConversationMessage(
         params.conversationId,
         "assistant",
         params.assistantAnswer,
@@ -67,7 +73,7 @@ export async function persistConversationTurn(params: {
 
     const memoryCandidates = extractStableMemories(params.userMessage, params.assistantAnswer);
     if (memoryCandidates.length) {
-        const created = await writeMemoryEntries(
+        const memoryEntries = await writeMemoryEntries(
             memoryCandidates.map((candidate) => ({
                 id: crypto.randomUUID(),
                 workspace_id: params.workspaceId || null,
@@ -81,10 +87,18 @@ export async function persistConversationTurn(params: {
                 metadata: { auto: true },
             }))
         );
-        return created;
+        return {
+            userMessage: userMessageRecord,
+            assistantMessage: assistantMessageRecord,
+            memoryEntries,
+        };
     }
 
-    return [];
+    return {
+        userMessage: userMessageRecord,
+        assistantMessage: assistantMessageRecord,
+        memoryEntries: [] as MemoryEntryRecord[],
+    };
 }
 
 export async function maybeRefreshConversationSummary(params: {

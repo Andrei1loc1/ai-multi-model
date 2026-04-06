@@ -21,9 +21,22 @@ import ModelSelector from "@/app/components/Chat/ModelSelector";
 import ProviderSelector from "@/app/components/Chat/ProviderSelector";
 import type { ConversationMessageItem } from "@/app/components/Chat/ConversationThread";
 import SaveResponseModal from "@/app/components/modals/SaveResponseModal";
+import VirtualProjectPanel, {
+    type VirtualProjectTab,
+} from "@/app/components/Workspace/VirtualProjectPanel";
+import type { VirtualProjectPreviewStatus } from "@/app/components/Workspace/VirtualProjectPreview";
 import WorkspaceSidebar from "@/app/components/Workspace/WorkspaceSidebar";
 import { getModelsForProvider, ProviderFilter } from "@/app/lib/AImodels/models";
-import type { ImageAttachmentInput, MessageAttachmentMetadata } from "@/app/lib/workspaces/types";
+import { createPythonRuntime, type PythonRunResult, type PythonRuntimeSession } from "@/app/lib/virtualProjects/pythonRuntime";
+import { buildReactPreviewDocument } from "@/app/lib/virtualProjects/reactRuntime";
+import type {
+    ImageAttachmentInput,
+    MessageAttachmentMetadata,
+    OrchestrateChatOutput,
+    VirtualProject,
+    VirtualProjectRunSummary,
+    VirtualProjectSummary,
+} from "@/app/lib/workspaces/types";
 
 type Workspace = {
     id: string;
@@ -38,39 +51,10 @@ type Conversation = {
     workspace_id?: string | null;
 };
 
-type OrchestratedResponse = {
-    answer: string;
-    conversationId: string;
-    modelUsed: {
-        id: string;
-        provider: string;
-        profile: string;
-        why: string;
-    };
-    taskType: string;
-    contextSources: Array<{
-        type: string;
-        label: string;
-        score: number;
-    }>;
-    memoryWrites: Array<{
-        kind: string;
-        content: string;
-    }>;
-    suggestedActions: string[];
-    agent: {
-        understanding: string;
-        files_used: string[];
-        proposed_changes: string[];
-        patch_or_code: string;
-        risks: string[];
-        next_step: string;
-    } | null;
-};
-
 type ConversationApiResponse = {
     conversation: Conversation;
     messages: ConversationMessageItem[];
+    latestProject?: VirtualProjectSummary | null;
 };
 
 type ChatImageAttachmentDraft = ChatImageAttachmentPreview & {
@@ -104,7 +88,7 @@ function fileToDataUrl(file: File) {
     });
 }
 
-function buildLoadedResult(message: ConversationMessageItem, conversationId: string): OrchestratedResponse {
+function buildLoadedResult(message: ConversationMessageItem, conversationId: string): OrchestrateChatOutput {
     return {
         answer: message.content,
         conversationId,
@@ -114,7 +98,7 @@ function buildLoadedResult(message: ConversationMessageItem, conversationId: str
             profile: "conversation",
             why: "Loaded from recent conversation history.",
         },
-        taskType: message.metadata?.taskType || "chat",
+        taskType: (message.metadata?.taskType as OrchestrateChatOutput["taskType"] | undefined) || "chat",
         contextSources: message.metadata?.contextSources || [],
         memoryWrites: [],
         suggestedActions: [
@@ -122,6 +106,45 @@ function buildLoadedResult(message: ConversationMessageItem, conversationId: str
             "Refine the last answer or ask for a patch.",
         ],
         agent: message.metadata?.agent || null,
+        virtualProject: message.metadata?.virtualProject || null,
+    };
+}
+
+function buildLogsFromRunSummary(summary: VirtualProjectRunSummary | null, lastError?: string | null) {
+    const lines: string[] = [];
+
+    if (summary?.stdout) {
+        lines.push(summary.stdout);
+    }
+
+    if (summary?.stderr) {
+        lines.push(summary.stderr);
+    }
+
+    if (lastError) {
+        lines.push(lastError);
+    }
+
+    return lines;
+}
+
+function mergeProjectSummary(project: VirtualProject, summary: VirtualProjectSummary): VirtualProject {
+    return {
+        ...project,
+        workspaceId: summary.workspaceId,
+        conversationId: summary.conversationId,
+        sourceMessageId: summary.sourceMessageId,
+        kind: summary.kind,
+        title: summary.title,
+        prompt: summary.prompt,
+        status: summary.status,
+        entryFile: summary.entryFile,
+        previewMode: summary.previewMode,
+        manifest: summary.manifest,
+        lastRunSummary: summary.lastRunSummary,
+        lastError: summary.lastError,
+        createdAt: summary.createdAt,
+        updatedAt: summary.updatedAt,
     };
 }
 
@@ -141,7 +164,14 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
     const [showAttachPanel, setShowAttachPanel] = useState(false);
     const [showMobileControls, setShowMobileControls] = useState(false);
     const [imageAttachments, setImageAttachments] = useState<ChatImageAttachmentDraft[]>([]);
-    const [result, setResult] = useState<OrchestratedResponse | null>(null);
+    const [result, setResult] = useState<OrchestrateChatOutput | null>(null);
+    const [activeProject, setActiveProject] = useState<VirtualProject | null>(null);
+    const [activeProjectTab, setActiveProjectTab] = useState<VirtualProjectTab>("overview");
+    const [selectedProjectFilePath, setSelectedProjectFilePath] = useState<string | null>(null);
+    const [previewStatus, setPreviewStatus] = useState<VirtualProjectPreviewStatus>("idle");
+    const [previewLogs, setPreviewLogs] = useState<string[]>([]);
+    const [reactPreviewDocument, setReactPreviewDocument] = useState<string | null>(null);
+    const [pythonPreviewResult, setPythonPreviewResult] = useState<PythonRunResult | null>(null);
     const [statusMessage, setStatusMessage] = useState("Cloud workspace ready.");
     const [error, setError] = useState<string | null>(null);
     const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
@@ -149,6 +179,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
     const imageInputRef = useRef<HTMLInputElement | null>(null);
     const imageUploadSequenceRef = useRef(0);
     const imageAttachmentsRef = useRef<ChatImageAttachmentDraft[]>([]);
+    const pythonRuntimeRef = useRef<PythonRuntimeSession | null>(null);
 
     const defaultUploadImageAttachment = useCallback(async (file: File) => {
         const dataUrl = await fileToDataUrl(file);
@@ -184,6 +215,24 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         imageAttachmentsRef.current = imageAttachments;
     }, [imageAttachments]);
 
+    useEffect(() => {
+        return () => {
+            pythonRuntimeRef.current?.dispose();
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!activeProject) {
+            return;
+        }
+
+        setSelectedProjectFilePath((current) =>
+            current && activeProject.files.some((file) => file.path === current)
+                ? current
+                : activeProject.entryFile
+        );
+    }, [activeProject]);
+
     const clearImageAttachments = useCallback(() => {
         setImageAttachments((current) => {
             current.forEach((attachment) => {
@@ -193,6 +242,66 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
             });
             return [];
         });
+    }, []);
+
+    const resetProjectSurface = useCallback(() => {
+        setActiveProject(null);
+        setActiveProjectTab("overview");
+        setSelectedProjectFilePath(null);
+        setPreviewStatus("idle");
+        setPreviewLogs([]);
+        setReactPreviewDocument(null);
+        setPythonPreviewResult(null);
+    }, []);
+
+    const loadVirtualProject = useCallback(
+        async (projectId: string, nextTab?: VirtualProjectTab) => {
+            const res = await fetch(`/api/virtual-projects/${projectId}`, {
+                cache: "no-store",
+            });
+            const data = (await res.json()) as { project?: VirtualProject; error?: string };
+
+            if (!res.ok || !data.project) {
+                throw new Error(data.error || "Failed to load virtual project.");
+            }
+
+            setActiveProject(data.project);
+            setSelectedProjectFilePath((current) =>
+                current && data.project?.files.some((file) => file.path === current)
+                    ? current
+                    : data.project?.entryFile || null
+            );
+            setPreviewStatus(data.project.lastError ? "error" : data.project.lastRunSummary ? "ready" : "idle");
+            setPreviewLogs(buildLogsFromRunSummary(data.project.lastRunSummary, data.project.lastError));
+            setReactPreviewDocument(null);
+            setPythonPreviewResult(null);
+
+            if (nextTab) {
+                setActiveProjectTab(nextTab);
+            }
+
+            return data.project;
+        },
+        []
+    );
+
+    const persistProjectSummary = useCallback(async (projectId: string, body: Record<string, unknown>) => {
+        const res = await fetch(`/api/virtual-projects/${projectId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        const data = (await res.json()) as { project?: VirtualProjectSummary; error?: string };
+
+        if (!res.ok || !data.project) {
+            throw new Error(data.error || "Failed to update virtual project.");
+        }
+
+        setActiveProject((current) =>
+            current && current.id === data.project?.id ? mergeProjectSummary(current, data.project) : current
+        );
+
+        return data.project;
     }, []);
 
     const visibleConversations = useMemo(
@@ -265,10 +374,15 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         setMode(data.conversation.mode === "agent" ? "agent" : "chat");
         setSelectedWorkspaceId(data.conversation.workspace_id || null);
         setResult(latestAssistant ? buildLoadedResult(latestAssistant, data.conversation.id) : null);
+        if (data.latestProject?.id) {
+            await loadVirtualProject(data.latestProject.id);
+        } else {
+            resetProjectSurface();
+        }
         setStatusMessage(`Loaded conversation: ${data.conversation.title}`);
         setError(null);
         return data;
-    }, []);
+    }, [loadVirtualProject, resetProjectSurface]);
 
     useEffect(() => {
         void loadWorkspaceState();
@@ -291,6 +405,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         if (!selectedConversationId) {
             setMessages([]);
             setResult(null);
+            resetProjectSurface();
             return;
         }
 
@@ -318,7 +433,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         return () => {
             cancelled = true;
         };
-    }, [selectedConversationId, loadConversationThread]);
+    }, [selectedConversationId, loadConversationThread, resetProjectSurface]);
 
     useEffect(() => {
         if (!selectedConversationId) {
@@ -331,6 +446,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         setSelectedConversationId(null);
         setMessages([]);
         setResult(null);
+        resetProjectSurface();
         setError(null);
         setRepoUrl("");
         setShowAttachPanel(false);
@@ -360,6 +476,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                 setSelectedConversationId(null);
                 setMessages([]);
                 setResult(null);
+                resetProjectSurface();
                 clearImageAttachments();
                 setStatusMessage("Workspace deleted.");
             }
@@ -395,6 +512,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                 setSelectedConversationId(null);
                 setMessages([]);
                 setResult(null);
+                resetProjectSurface();
                 clearImageAttachments();
                 setStatusMessage("Conversation deleted.");
             }
@@ -513,6 +631,140 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         };
     }, []);
 
+    const handleOpenVirtualProject = useCallback((projectId: string) => {
+        void loadVirtualProject(projectId, "files").catch((loadError: unknown) => {
+            setError(loadError instanceof Error ? loadError.message : "Failed to open virtual project.");
+        });
+    }, [loadVirtualProject]);
+
+    const handleDownloadVirtualProject = useCallback(() => {
+        if (!activeProject) {
+            return;
+        }
+
+        const anchor = document.createElement("a");
+        anchor.href = `/api/virtual-projects/${activeProject.id}/download`;
+        anchor.download = `${activeProject.title || "virtual-project"}.zip`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+    }, [activeProject]);
+
+    const handleRunVirtualProject = useCallback(async () => {
+        if (!activeProject) {
+            return;
+        }
+
+        setError(null);
+        setActiveProjectTab("preview");
+        setPreviewLogs([]);
+        setReactPreviewDocument(null);
+        setPythonPreviewResult(null);
+
+        if (activeProject.kind === "react-app") {
+            setPreviewStatus("loading");
+            const build = buildReactPreviewDocument({
+                title: activeProject.title,
+                entryFile: activeProject.entryFile,
+                files: activeProject.files.map((file) => ({
+                    path: file.path,
+                    language: file.language,
+                    content: file.content,
+                })),
+            });
+
+            if (!build.ok) {
+                const errorMessage = build.errors.join("\n");
+                setPreviewStatus("error");
+                setPreviewLogs(build.errors);
+                await persistProjectSummary(activeProject.id, {
+                    status: "error",
+                    lastRunSummary: {
+                        status: "error",
+                        stdout: null,
+                        stderr: errorMessage,
+                        durationMs: null,
+                        updatedAt: new Date().toISOString(),
+                    },
+                    lastError: errorMessage,
+                }).catch(() => undefined);
+                return;
+            }
+
+            setReactPreviewDocument(build.html);
+            const logs = [
+                `Built ${build.moduleCount} virtual modules for preview.`,
+                ...build.warnings,
+            ];
+            setPreviewLogs(logs);
+            setPreviewStatus("ready");
+            await persistProjectSummary(activeProject.id, {
+                status: "ready",
+                lastRunSummary: {
+                    status: "success",
+                    stdout: logs.join("\n"),
+                    stderr: null,
+                    durationMs: null,
+                    updatedAt: new Date().toISOString(),
+                },
+                lastError: null,
+            }).catch(() => undefined);
+            return;
+        }
+
+        const entryFile = activeProject.files.find((file) => file.path === activeProject.entryFile);
+        if (!entryFile) {
+            const errorMessage = `Entry file ${activeProject.entryFile} was not found.`;
+            setPreviewStatus("error");
+            setPreviewLogs([errorMessage]);
+            return;
+        }
+
+        setPreviewStatus("loading");
+
+        if (!pythonRuntimeRef.current) {
+            pythonRuntimeRef.current = createPythonRuntime();
+        }
+
+        try {
+            await pythonRuntimeRef.current.ready;
+            setPreviewStatus("running");
+            const runResult = await pythonRuntimeRef.current.run(entryFile.content);
+            setPythonPreviewResult(runResult);
+            setPreviewStatus(runResult.status === "success" ? "ready" : "error");
+            setPreviewLogs(
+                [runResult.stdout, runResult.stderr, runResult.errorMessage]
+                    .filter((value): value is string => Boolean(value && value.trim()))
+            );
+            await persistProjectSummary(activeProject.id, {
+                status: runResult.status === "success" ? "ready" : "error",
+                lastRunSummary: {
+                    status: runResult.status === "success" ? "success" : "error",
+                    stdout: runResult.stdout || null,
+                    stderr: runResult.stderr || runResult.errorMessage || null,
+                    durationMs: runResult.durationMs,
+                    updatedAt: new Date().toISOString(),
+                },
+                lastError: runResult.status === "success" ? null : runResult.errorMessage,
+            }).catch(() => undefined);
+        } catch (runError: unknown) {
+            const errorMessage = runError instanceof Error ? runError.message : "Python runtime failed.";
+            setPreviewStatus("error");
+            setPreviewLogs([errorMessage]);
+            await persistProjectSummary(activeProject.id, {
+                status: "error",
+                lastRunSummary: {
+                    status: "error",
+                    stdout: null,
+                    stderr: errorMessage,
+                    durationMs: null,
+                    updatedAt: new Date().toISOString(),
+                },
+                lastError: errorMessage,
+            }).catch(() => undefined);
+        }
+    }, [activeProject, persistProjectSummary]);
+
     const sendMessage = async () => {
         const outgoingMessage = input.trim();
         if (!outgoingMessage) return;
@@ -596,7 +848,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                 }),
             });
 
-            const data = await res.json();
+            const data = (await res.json()) as OrchestrateChatOutput & { error?: string };
             if (!res.ok) {
                 throw new Error(data.error || "Failed to orchestrate response.");
             }
@@ -610,6 +862,9 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                 setSelectedConversationId(data.conversationId);
             } else {
                 await loadConversationThread(data.conversationId);
+                if (data.virtualProject?.id) {
+                    await loadVirtualProject(data.virtualProject.id, "overview");
+                }
             }
         } catch (sendError: unknown) {
             setMessages((current) => current.filter((message) => message.id !== tempUserId && message.id !== tempAssistantId));
@@ -636,6 +891,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
             setSelectedConversationId(null);
             setMessages([]);
             setResult(null);
+            resetProjectSurface();
             setRepoUrl("");
             setShowAttachPanel(false);
             setShowMobileControls(false);
@@ -719,6 +975,60 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         setSaveResponseContent(content);
         setIsSaveModalOpen(true);
     }, []);
+
+    const previewElement = useMemo(() => {
+        if (!activeProject) {
+            return undefined;
+        }
+
+        if (activeProject.kind === "react-app" && reactPreviewDocument) {
+            return (
+                <iframe
+                    title={`${activeProject.title} preview`}
+                    srcDoc={reactPreviewDocument}
+                    sandbox="allow-scripts"
+                    className="min-h-[420px] w-full rounded-[18px] border border-white/8 bg-slate-950"
+                />
+            );
+        }
+
+        if (activeProject.kind === "python-script" && pythonPreviewResult) {
+            return (
+                <div className="grid gap-3 rounded-[20px] border border-white/8 bg-slate-950/75 p-4 text-sm text-white">
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <div className="text-[10px] uppercase tracking-[0.24em] text-slate-500">Python output</div>
+                            <div className="mt-1 font-medium text-white">{activeProject.entryFile}</div>
+                        </div>
+                        <span className="rounded-full border border-white/8 bg-white/[0.04] px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-slate-300">
+                            {pythonPreviewResult.status}
+                        </span>
+                    </div>
+
+                    {pythonPreviewResult.stdout ? (
+                        <div className="rounded-2xl border border-emerald-300/10 bg-emerald-300/[0.08] p-3 text-sm leading-6 text-white">
+                            {pythonPreviewResult.stdout}
+                        </div>
+                    ) : null}
+
+                    {pythonPreviewResult.stderr || pythonPreviewResult.errorMessage ? (
+                        <div className="rounded-2xl border border-red-300/10 bg-red-300/[0.08] p-3 text-sm leading-6 text-white">
+                            {pythonPreviewResult.stderr || pythonPreviewResult.errorMessage}
+                        </div>
+                    ) : null}
+
+                    {pythonPreviewResult.result !== null ? (
+                        <div className="rounded-2xl border border-white/8 bg-white/[0.04] p-3 text-sm leading-6 text-slate-100">
+                            <div className="mb-2 text-[10px] uppercase tracking-[0.22em] text-slate-500">Return value</div>
+                            <pre className="whitespace-pre-wrap break-words">{JSON.stringify(pythonPreviewResult.result, null, 2)}</pre>
+                        </div>
+                    ) : null}
+                </div>
+            );
+        }
+
+        return undefined;
+    }, [activeProject, pythonPreviewResult, reactPreviewDocument]);
 
     return (
         <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-2.5 overflow-x-clip px-2.5 pb-2.5 pt-16 sm:px-3 lg:px-4 lg:pb-3 lg:pt-6">
@@ -897,7 +1207,25 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                                 messages={messages}
                                 loading={loading}
                                 onSaveAssistantMessage={handleSaveAssistantMessage}
+                                onOpenVirtualProject={handleOpenVirtualProject}
                             />
+
+                            {(mode === "agent" || activeProject) && (
+                                <div className="mt-3">
+                                    <VirtualProjectPanel
+                                        project={activeProject}
+                                        activeTab={activeProjectTab}
+                                        onTabChange={setActiveProjectTab}
+                                        selectedFilePath={selectedProjectFilePath}
+                                        onSelectedFilePathChange={setSelectedProjectFilePath}
+                                        previewStatus={previewStatus}
+                                        previewLogs={previewLogs}
+                                        previewElement={previewElement}
+                                        onRun={handleRunVirtualProject}
+                                        onDownload={handleDownloadVirtualProject}
+                                    />
+                                </div>
+                            )}
 
                             <div className="sticky bottom-2 mt-2.5 rounded-[16px] border border-white/8 bg-slate-950/95 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] backdrop-blur-xl sm:bottom-0 sm:mt-3 sm:rounded-[18px] sm:pb-2">
                                 {imageAttachments.length > 0 && (

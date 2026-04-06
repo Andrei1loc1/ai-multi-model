@@ -1,5 +1,8 @@
 export type WorkspaceMode = "chat" | "agent";
 export type AgentExecutionMode = "draft" | "apply";
+export type VirtualProjectKind = "react-app" | "python-script";
+export type VirtualProjectPreviewMode = "react" | "pyodide";
+export type VirtualProjectStatus = "ready" | "running" | "error";
 
 export type WorkspaceCapability =
     | "memory"
@@ -15,6 +18,15 @@ export type TaskType =
     | "rewrite"
     | "search"
     | "plan";
+
+export type AgentArtifact = {
+    understanding: string;
+    files_used: string[];
+    proposed_changes: string[];
+    patch_or_code: string;
+    risks: string[];
+    next_step: string;
+};
 
 export type ContextSource =
     | {
@@ -79,6 +91,71 @@ export type MessageAttachmentMetadata = {
     storagePath?: string | null;
 };
 
+export type VirtualProjectFile = {
+    id: string;
+    projectId: string;
+    path: string;
+    language: string;
+    content: string;
+    isEntry: boolean;
+    sortOrder: number;
+    createdAt: string;
+    updatedAt: string;
+};
+
+export type VirtualProjectRunSummary = {
+    status: "success" | "error";
+    stdout?: string | null;
+    stderr?: string | null;
+    durationMs?: number | null;
+    updatedAt?: string | null;
+};
+
+export type VirtualProjectReference = {
+    id: string;
+    kind: VirtualProjectKind;
+    title: string;
+    status: VirtualProjectStatus;
+    entryFile: string;
+    previewMode: VirtualProjectPreviewMode;
+    updatedAt: string;
+};
+
+export type VirtualProjectSummary = VirtualProjectReference & {
+    workspaceId: string | null;
+    conversationId: string;
+    sourceMessageId: string | null;
+    prompt: string;
+    fileCount: number;
+    manifest: Record<string, unknown>;
+    lastRunSummary: VirtualProjectRunSummary | null;
+    lastError: string | null;
+    createdAt: string;
+};
+
+export type VirtualProject = VirtualProjectSummary & {
+    files: VirtualProjectFile[];
+};
+
+export type VirtualProjectPayload = {
+    kind: VirtualProjectKind;
+    title: string;
+    summary: string;
+    entryFile: string;
+    previewMode: VirtualProjectPreviewMode;
+    files: Array<{
+        path: string;
+        language: string;
+        content: string;
+    }>;
+    runInstructions?: string[];
+};
+
+export type VirtualProjectValidationResult = {
+    project: VirtualProjectPayload;
+    warnings: string[];
+};
+
 export type OrchestratorCapabilities = {
     allowMemory?: boolean;
     allowRepo?: boolean;
@@ -117,12 +194,6 @@ export type OrchestrateChatOutput = {
         content: string;
     }>;
     suggestedActions: string[];
-    agent: {
-        understanding: string;
-        files_used: string[];
-        proposed_changes: string[];
-        patch_or_code: string;
-        risks: string[];
-        next_step: string;
-    } | null;
+    agent: AgentArtifact | null;
+    virtualProject: VirtualProjectReference | null;
 };

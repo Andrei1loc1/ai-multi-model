@@ -5,14 +5,24 @@ import { buildImageContextSources, linkImageAssetsToConversation } from "@/app/l
 import { markMemoryAsUsed, maybeRefreshConversationSummary, persistConversationTurn } from "@/app/lib/memory/service";
 import { getProfileForTask } from "@/app/lib/orchestrator/modelProfiles";
 import { classifyTask } from "@/app/lib/orchestrator/taskClassifier";
-import type { ContextSource, OrchestrateChatInput, OrchestrateChatOutput } from "@/app/lib/workspaces/types";
+import { validateVirtualProjectPayload } from "@/app/lib/virtualProjects/validate";
+import type {
+    ContextSource,
+    OrchestrateChatInput,
+    OrchestrateChatOutput,
+    VirtualProject,
+    VirtualProjectPayload,
+    VirtualProjectReference,
+} from "@/app/lib/workspaces/types";
 import {
+    createVirtualProject,
     ensureConversation,
     getConversationMessages,
     getRelevantMemory,
     getWorkspaceRepoConnection,
     listNotes,
     searchWorkspaceContext,
+    updateVirtualProject,
 } from "@/app/lib/workspaces/service";
 import { scoreTextMatch, uniqueTopByScore } from "@/app/lib/retrieval/scoring";
 
@@ -91,6 +101,255 @@ function sanitizeAssistantAnswer(answer: string) {
         .replace(/<\/?parameter\b[^>]*>/gi, "")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
+}
+
+function stripCodeBlocksForVirtualProject(answer: string) {
+    const withoutCodeBlocks = answer
+        .replace(/```[\s\S]*?```/g, "")
+        .replace(/(^|\n)#{1,6}\s+`[^`]+\.(?:tsx|ts|jsx|js|css|json|py)`\s*(?=\n|$)/g, "")
+        .replace(/(^|\n)#{1,6}\s+Codul Aplicației\s*(?=\n|$)/gi, "")
+        .replace(/(^|\n)#{1,6}\s+Cum să rulezi\s*(?=\n|$)[\s\S]*$/i, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+
+    const note = "Codul proiectului este disponibil în panoul Virtual project, la tab-ul Files, și prin Download ZIP.";
+
+    if (!withoutCodeBlocks) {
+        return note;
+    }
+
+    if (withoutCodeBlocks.includes(note)) {
+        return withoutCodeBlocks;
+    }
+
+    return `${withoutCodeBlocks}\n\n${note}`.trim();
+}
+
+function shouldGenerateVirtualProject(message: string, mode: OrchestrateChatInput["mode"]) {
+    if (mode !== "agent") {
+        return false;
+    }
+
+    return /(mini app|mini-app|mini aplicat|aplicatie|application|landing page|dashboard|react app|react project|python script|script python|automatizare|automation)/i.test(
+        message
+    );
+}
+
+function inferVirtualProjectKind(message: string): VirtualProjectPayload["kind"] {
+    return /(python|script python|python script|automatizare|automation)/i.test(message)
+        ? "python-script"
+        : "react-app";
+}
+
+function extractJsonObject(text: string) {
+    const fencedMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const candidate = fencedMatch?.[1]?.trim() || text.trim();
+    const firstBrace = candidate.indexOf("{");
+    const lastBrace = candidate.lastIndexOf("}");
+
+    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+        throw new Error("Virtual project generation did not return a JSON object.");
+    }
+
+    return candidate.slice(firstBrace, lastBrace + 1);
+}
+
+function extractCodeBlocks(answer: string) {
+    return Array.from(answer.matchAll(/```([a-zA-Z0-9_-]+)?\n([\s\S]*?)```/g)).map((match) => ({
+        language: (match[1] || "").trim().toLowerCase(),
+        content: match[2].replace(/\n$/, ""),
+        index: match.index || 0,
+    }));
+}
+
+function inferFilePathFromContext(context: string, language: string, kind: VirtualProjectPayload["kind"]) {
+    const explicitFileMatch = context.match(/`([^`]+\.(?:tsx|ts|jsx|js|css|json|py))`/i);
+    const namedSectionMatch = context.match(/(?:^|\n)\s*([A-Za-z0-9_./-]+\.(?:tsx|ts|jsx|js|css|json|py))\s*$/im);
+    const rawPath = explicitFileMatch?.[1] || namedSectionMatch?.[1] || null;
+
+    if (rawPath) {
+        const normalized = rawPath.replace(/\\/g, "/").replace(/^\/+/, "");
+        if (normalized.includes("/")) {
+            return normalized;
+        }
+
+        if (kind === "react-app" && !normalized.startsWith("src/")) {
+            return `src/${normalized}`;
+        }
+
+        return normalized;
+    }
+
+    if (kind === "python-script") {
+        return "main.py";
+    }
+
+    if (language === "css") {
+        return "src/App.css";
+    }
+
+    return "src/App.jsx";
+}
+
+function buildFallbackVirtualProjectFromAnswer(message: string, answer: string): VirtualProjectPayload | null {
+    const kind = inferVirtualProjectKind(message);
+    const codeBlocks = extractCodeBlocks(answer);
+
+    if (!codeBlocks.length) {
+        return null;
+    }
+
+    if (kind === "python-script") {
+        const pythonBlock = codeBlocks.find((block) => block.language === "py" || block.language === "python");
+        if (!pythonBlock) {
+            return null;
+        }
+
+        return {
+            kind,
+            title: "Python Script",
+            summary: message,
+            entryFile: "main.py",
+            previewMode: "pyodide",
+            files: [
+                {
+                    path: "main.py",
+                    language: "python",
+                    content: pythonBlock.content,
+                },
+            ],
+        };
+    }
+
+    const files = codeBlocks
+        .filter((block) => ["jsx", "tsx", "js", "ts", "css"].includes(block.language))
+        .map((block) => {
+            const context = answer.slice(Math.max(0, block.index - 220), block.index);
+            const path = inferFilePathFromContext(context, block.language, kind);
+            const language = block.language === "js" ? "jsx" : block.language || "jsx";
+
+            return {
+                path,
+                language,
+                content: block.content,
+            };
+        });
+
+    if (!files.length) {
+        return null;
+    }
+
+    const hasAppFile = files.some((file) => /src\/App\.(jsx|tsx|js|ts)$/i.test(file.path));
+    const hasEntryFile = files.some((file) => /src\/main\.(jsx|tsx|js|ts)$/i.test(file.path));
+
+    if (!hasAppFile) {
+        const componentBlock = codeBlocks.find((block) => ["jsx", "tsx", "js", "ts"].includes(block.language));
+        if (!componentBlock) {
+            return null;
+        }
+
+        files.unshift({
+            path: "src/App.jsx",
+            language: "jsx",
+            content: componentBlock.content,
+        });
+    }
+
+    if (!hasEntryFile) {
+        files.push({
+            path: "src/main.jsx",
+            language: "jsx",
+            content: [
+                "import React from 'react';",
+                "import ReactDOM from 'react-dom/client';",
+                "import App from './App.jsx';",
+                "",
+                "ReactDOM.createRoot(document.getElementById('root')).render(",
+                "  <React.StrictMode>",
+                "    <App />",
+                "  </React.StrictMode>",
+                ");",
+            ].join("\n"),
+        });
+    }
+
+    return {
+        kind,
+        title: "React Mini App",
+        summary: message,
+        entryFile: "src/App.jsx",
+        previewMode: "react",
+        files: files.filter(
+            (file, index, current) => current.findIndex((candidate) => candidate.path === file.path) === index
+        ),
+    };
+}
+
+function toVirtualProjectReference(project: VirtualProject): VirtualProjectReference {
+    return {
+        id: project.id,
+        kind: project.kind,
+        title: project.title,
+        status: project.status,
+        entryFile: project.entryFile,
+        previewMode: project.previewMode,
+        updatedAt: project.updatedAt,
+    };
+}
+
+async function maybeGenerateVirtualProject(params: {
+    model: ReturnType<typeof getModel>;
+    message: string;
+    answer: string;
+    prompt: string;
+    systemPrompt: string;
+}) {
+    if (!shouldGenerateVirtualProject(params.message, "agent")) {
+        return null;
+    }
+
+    const kind = inferVirtualProjectKind(params.message);
+    const generationPrompt = [
+        `Create a runnable browser-safe ${kind === "react-app" ? "React mini app" : "Python script"} as strict JSON.`,
+        "Return only one JSON object with this exact shape:",
+        '{"kind":"react-app|python-script","title":"string","summary":"string","entryFile":"string","previewMode":"react|pyodide","files":[{"path":"string","language":"string","content":"string"}]}',
+        kind === "react-app"
+            ? "Rules: multi-file is allowed, but only local imports plus react and react-dom package imports are allowed. Prefer src/App.tsx as entry."
+            : "Rules: prefer a single entry file named main.py or app.py. Do not rely on external packages, shell access, or filesystem access.",
+        "Keep the project small and focused. Do not include explanations outside JSON.",
+        "",
+        "User request:",
+        params.message,
+        "",
+        "Assistant answer summary:",
+        params.answer,
+        "",
+        "Relevant context:",
+        params.prompt,
+    ].join("\n");
+
+    try {
+        const response = await aiRequest(
+            params.model,
+            {
+                prompt: generationPrompt,
+                systemPrompt: `${params.systemPrompt}\nReturn only valid JSON. No markdown fences, no prose.`,
+                temperature: 0.3,
+            },
+            false
+        );
+
+        const rawText = sanitizeAssistantAnswer("text" in response ? response.text : "");
+        const parsed = JSON.parse(extractJsonObject(rawText)) as VirtualProjectPayload;
+        return validateVirtualProjectPayload(parsed).project;
+    } catch {
+        const fallbackProject = buildFallbackVirtualProjectFromAnswer(params.message, params.answer);
+        if (!fallbackProject) {
+            throw new Error("Virtual project generation failed and no code-block fallback could be derived.");
+        }
+
+        return validateVirtualProjectPayload(fallbackProject).project;
+    }
 }
 
 export async function orchestrateChat(input: OrchestrateChatInput): Promise<OrchestrateChatOutput> {
@@ -260,8 +519,51 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
               answer,
           })
         : null;
+    let virtualProjectDetail: VirtualProject | null = null;
 
-    const memoryWrites = await persistConversationTurn({
+    if (shouldGenerateVirtualProject(input.message, input.mode)) {
+        try {
+            const generatedProject = await maybeGenerateVirtualProject({
+                model,
+                message: input.message,
+                answer,
+                prompt,
+                systemPrompt,
+            });
+
+            if (generatedProject) {
+                virtualProjectDetail = await createVirtualProject({
+                    workspaceId: input.workspaceId,
+                    conversationId: conversation.id,
+                    sourceMessageId: null,
+                    kind: generatedProject.kind,
+                    title: generatedProject.title,
+                    prompt: generatedProject.summary,
+                    status: "ready",
+                    entryFile: generatedProject.entryFile,
+                    previewMode: generatedProject.previewMode,
+                    manifest: {
+                        generatedBy: "orchestrator",
+                        modelId: model.id,
+                        provider: model.provider,
+                    },
+                    lastRunSummary: null,
+                    lastError: null,
+                    files: generatedProject.files.map((file, index) => ({
+                        ...file,
+                        isEntry: file.path === generatedProject.entryFile,
+                        sortOrder: index,
+                    })),
+                });
+            }
+        } catch (projectError) {
+            console.error("Virtual project generation failed:", projectError);
+        }
+    }
+
+    const virtualProject = virtualProjectDetail ? toVirtualProjectReference(virtualProjectDetail) : null;
+    const assistantAnswerForDisplay = virtualProject ? stripCodeBlocksForVirtualProject(answer) : answer;
+    const persistedTurn = await persistConversationTurn({
         conversationId: conversation.id,
         workspaceId: input.workspaceId,
         repoConnectionId: repoConnection?.id || null,
@@ -271,7 +573,7 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
                   attachments: imagePayload.messageAttachments,
               }
             : null,
-        assistantAnswer: answer,
+        assistantAnswer: assistantAnswerForDisplay,
         assistantMetadata: {
             contextSources: selectedSources.map((source) => ({
                 type: source.type,
@@ -287,6 +589,7 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
             taskType,
             attachments: imagePayload.messageAttachments,
             agent,
+            virtualProject,
         },
     });
 
@@ -297,8 +600,16 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
     });
     await markMemoryAsUsed(memoryEntries.map((entry) => entry.id));
 
+    if (virtualProjectDetail && persistedTurn.assistantMessage.id) {
+        await updateVirtualProject(virtualProjectDetail.id, {
+            sourceMessageId: persistedTurn.assistantMessage.id,
+        }).catch((projectLinkError) => {
+            console.error("Failed to link virtual project to assistant message:", projectLinkError);
+        });
+    }
+
     return {
-        answer,
+        answer: assistantAnswerForDisplay,
         conversationId: conversation.id,
         modelUsed: {
             id: model.id,
@@ -312,11 +623,12 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
             label: source.label,
             score: source.score,
         })),
-        memoryWrites: memoryWrites.map((entry) => ({
+        memoryWrites: persistedTurn.memoryEntries.map((entry) => ({
             kind: entry.kind,
             content: entry.content,
         })),
         suggestedActions: buildSuggestedActions(taskType, Boolean(repoConnection)),
         agent,
+        virtualProject,
     };
 }

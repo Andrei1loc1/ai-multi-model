@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
+type JsonRecord = Record<string, unknown>;
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -64,7 +66,7 @@ export type ConversationMessageRecord = {
     conversation_id: string;
     role: "user" | "assistant" | "system";
     content: string;
-    metadata: Record<string, unknown> | null;
+    metadata: JsonRecord | null;
     created_at: string;
 };
 
@@ -80,7 +82,7 @@ export type MemoryEntryRecord = {
     source_ref: string | null;
     last_used_at: string;
     created_at: string;
-    metadata: Record<string, unknown> | null;
+    metadata: JsonRecord | null;
 };
 
 export type RepoConnectionRecord = {
@@ -143,7 +145,7 @@ export type ImageAnalysisRunRecord = {
     model: string;
     status: "pending" | "completed" | "error";
     prompt_version: string;
-    raw_response: Record<string, unknown> | null;
+    raw_response: JsonRecord | null;
     error_message: string | null;
     created_at: string;
     completed_at: string | null;
@@ -167,8 +169,38 @@ export type ImageAnalysisCacheRecord = {
     id: string;
     image_asset_id: string;
     sha256: string;
-    bundle: Record<string, unknown>;
+    bundle: JsonRecord;
     bundle_version: string;
     created_at: string;
     last_used_at: string;
+};
+
+export type VirtualProjectRecord = {
+    id: string;
+    workspace_id: string | null;
+    conversation_id: string;
+    source_message_id: string | null;
+    kind: "react-app" | "python-script";
+    title: string;
+    prompt: string;
+    status: "ready" | "running" | "error";
+    entry_file: string;
+    preview_mode: "react" | "pyodide";
+    manifest_json: JsonRecord;
+    last_run_summary: JsonRecord | null;
+    last_error: string | null;
+    created_at: string;
+    updated_at: string;
+};
+
+export type VirtualProjectFileRecord = {
+    id: string;
+    project_id: string;
+    path: string;
+    language: string;
+    content: string;
+    is_entry: boolean;
+    sort_order: number;
+    created_at: string;
+    updated_at: string;
 };

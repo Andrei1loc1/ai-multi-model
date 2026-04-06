@@ -25,6 +25,36 @@ create table if not exists conversation_messages (
   created_at timestamptz not null default now()
 );
 
+create table if not exists virtual_projects (
+  id uuid primary key,
+  workspace_id uuid references workspaces(id) on delete cascade,
+  conversation_id uuid not null references conversations(id) on delete cascade,
+  source_message_id uuid references conversation_messages(id) on delete set null,
+  kind text not null check (kind in ('react-app', 'python-script')),
+  title text not null,
+  prompt text not null,
+  status text not null check (status in ('ready', 'running', 'error')),
+  entry_file text not null,
+  preview_mode text not null check (preview_mode in ('react', 'pyodide')),
+  manifest_json jsonb not null default '{}'::jsonb,
+  last_run_summary jsonb,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists virtual_project_files (
+  id uuid primary key,
+  project_id uuid not null references virtual_projects(id) on delete cascade,
+  path text not null,
+  language text not null,
+  content text not null,
+  is_entry boolean not null default false,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists memory_entries (
   id uuid primary key,
   workspace_id uuid references workspaces(id) on delete cascade,
@@ -139,3 +169,12 @@ create index if not exists memory_entries_scope_last_used_idx
 
 create index if not exists conversations_workspace_updated_idx
   on conversations(workspace_id, updated_at desc);
+
+create index if not exists virtual_projects_conversation_updated_idx
+  on virtual_projects(conversation_id, updated_at desc);
+
+create index if not exists virtual_projects_workspace_updated_idx
+  on virtual_projects(workspace_id, updated_at desc);
+
+create unique index if not exists virtual_project_files_project_path_idx
+  on virtual_project_files(project_id, path);

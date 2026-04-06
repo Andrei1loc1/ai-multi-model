@@ -5,22 +5,17 @@ import { Bot, BookmarkPlus, User } from "lucide-react";
 import ImageAttachmentStrip from "@/app/components/Chat/ImageAttachmentStrip";
 import MarkdownContent from "@/app/components/Response/MarkdownContent";
 import ResponseRenderer from "@/app/components/Response/ResponseRenderer";
-import type { MessageAttachmentMetadata } from "@/app/lib/workspaces/types";
+import type {
+    AgentArtifact,
+    MessageAttachmentMetadata,
+    VirtualProjectReference,
+} from "@/app/lib/workspaces/types";
 
 type ContextSource = {
     type: string;
     label: string;
     score: number;
 };
-
-type AgentPayload = {
-    understanding: string;
-    files_used: string[];
-    proposed_changes: string[];
-    patch_or_code: string;
-    risks: string[];
-    next_step: string;
-} | null;
 
 export type ConversationMessageItem = {
     id: string;
@@ -39,7 +34,8 @@ export type ConversationMessageItem = {
             why: string;
         };
         taskType?: string;
-        agent?: AgentPayload;
+        agent?: AgentArtifact | null;
+        virtualProject?: VirtualProjectReference | null;
     } | null;
 };
 
@@ -47,7 +43,7 @@ const AssistantArtifacts = memo(function AssistantArtifacts({
     agent,
     taskType,
 }: {
-    agent: AgentPayload;
+    agent: AgentArtifact | null;
     taskType?: string;
 }) {
     if (taskType !== "coding") {
@@ -128,9 +124,11 @@ const AssistantArtifacts = memo(function AssistantArtifacts({
 const MessageBubble = memo(function MessageBubble({
     message,
     onSaveAssistantMessage,
+    onOpenVirtualProject,
 }: {
     message: ConversationMessageItem;
     onSaveAssistantMessage?: (content: string) => void;
+    onOpenVirtualProject?: (projectId: string) => void;
 }) {
     if (message.role === "user") {
         return (
@@ -162,6 +160,8 @@ const MessageBubble = memo(function MessageBubble({
     }
 
     if (message.role === "assistant") {
+        const virtualProjectId = message.metadata?.virtualProject?.id || null;
+
         return (
             <div className="flex justify-start">
                 <div className="w-full max-w-full sm:max-w-[96%] md:max-w-[92%]">
@@ -180,16 +180,27 @@ const MessageBubble = memo(function MessageBubble({
                             <ResponseRenderer
                                 content={message.content}
                                 headerActions={
-                                    onSaveAssistantMessage ? (
-                                        <button
-                                            type="button"
-                                            onClick={() => onSaveAssistantMessage(message.content)}
-                                            className="response-surface-action"
-                                        >
-                                            <BookmarkPlus size={12} />
-                                            Save note
-                                        </button>
-                                    ) : null
+                                    <>
+                                        {onSaveAssistantMessage ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => onSaveAssistantMessage(message.content)}
+                                                className="response-surface-action"
+                                            >
+                                                <BookmarkPlus size={12} />
+                                                Save note
+                                            </button>
+                                        ) : null}
+                                        {virtualProjectId && onOpenVirtualProject ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => onOpenVirtualProject(virtualProjectId)}
+                                                className="response-surface-action"
+                                            >
+                                                Open project
+                                            </button>
+                                        ) : null}
+                                    </>
                                 }
                             />
                             <AssistantArtifacts
@@ -216,10 +227,12 @@ export default function ConversationThread({
     messages,
     loading,
     onSaveAssistantMessage,
+    onOpenVirtualProject,
 }: {
     messages: ConversationMessageItem[];
     loading: boolean;
     onSaveAssistantMessage?: (content: string) => void;
+    onOpenVirtualProject?: (projectId: string) => void;
 }) {
     const bottomRef = useRef<HTMLDivElement | null>(null);
     const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -285,6 +298,7 @@ export default function ConversationThread({
                         key={message.id}
                         message={message}
                         onSaveAssistantMessage={message.role === "assistant" && !message.pending ? onSaveAssistantMessage : undefined}
+                        onOpenVirtualProject={message.role === "assistant" && !message.pending ? onOpenVirtualProject : undefined}
                     />
                 ))}
 

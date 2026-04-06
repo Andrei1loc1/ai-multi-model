@@ -3,13 +3,67 @@ import { getSupabaseServerClient } from "@/app/lib/database/supabase";
 import { scoreRecency, scoreTextMatch, uniqueTopByScore } from "@/app/lib/retrieval/scoring";
 import { indexGitHubRepository, getGitHubRepoMetadata } from "@/app/lib/workspaces/github";
 import type {
+    ConversationMessageRecord,
     ConversationRecord,
     MemoryEntryRecord,
     NoteRecord,
     RepoChunkRecord,
     RepoConnectionRecord,
+    VirtualProjectFileRecord,
+    VirtualProjectRecord,
     WorkspaceRecord,
 } from "@/app/lib/database/supabase";
+import type {
+    VirtualProject,
+    VirtualProjectFile,
+    VirtualProjectKind,
+    VirtualProjectPreviewMode,
+    VirtualProjectRunSummary,
+    VirtualProjectStatus,
+    VirtualProjectSummary,
+} from "@/app/lib/workspaces/types";
+
+function mapVirtualProjectFile(record: VirtualProjectFileRecord): VirtualProjectFile {
+    return {
+        id: record.id,
+        projectId: record.project_id,
+        path: record.path,
+        language: record.language,
+        content: record.content,
+        isEntry: record.is_entry,
+        sortOrder: record.sort_order,
+        createdAt: record.created_at,
+        updatedAt: record.updated_at,
+    };
+}
+
+function mapVirtualProjectSummary(record: VirtualProjectRecord, fileCount: number): VirtualProjectSummary {
+    return {
+        id: record.id,
+        workspaceId: record.workspace_id,
+        conversationId: record.conversation_id,
+        sourceMessageId: record.source_message_id,
+        kind: record.kind,
+        title: record.title,
+        prompt: record.prompt,
+        status: record.status,
+        entryFile: record.entry_file,
+        previewMode: record.preview_mode,
+        fileCount,
+        manifest: record.manifest_json || {},
+        lastRunSummary: (record.last_run_summary as VirtualProjectRunSummary | null) || null,
+        lastError: record.last_error,
+        createdAt: record.created_at,
+        updatedAt: record.updated_at,
+    };
+}
+
+function mapVirtualProject(record: VirtualProjectRecord, files: VirtualProjectFileRecord[]): VirtualProject {
+    return {
+        ...mapVirtualProjectSummary(record, files.length),
+        files: files.map(mapVirtualProjectFile),
+    };
+}
 
 export async function listWorkspaces() {
     const supabase = getSupabaseServerClient();
@@ -142,13 +196,19 @@ export async function addConversationMessage(
         created_at: new Date().toISOString(),
     };
 
-    const { error } = await supabase.from("conversation_messages").insert(message);
+    const { data, error } = await supabase
+        .from("conversation_messages")
+        .insert(message)
+        .select("*")
+        .single();
     if (error) throw new Error(error.message);
 
     await supabase
         .from("conversations")
         .update({ updated_at: new Date().toISOString() })
         .eq("id", conversationId);
+
+    return data as ConversationMessageRecord;
 }
 
 export async function getRelevantMemory(params: {
@@ -440,4 +500,241 @@ export async function validateApiKey(apiKey: string) {
         .maybeSingle();
     if (error) throw new Error(error.message);
     return Boolean(data);
+}
+
+async function countVirtualProjectFiles(projectId: string) {
+    const supabase = getSupabaseServerClient();
+    const { count, error } = await supabase
+        .from("virtual_project_files")
+        .select("id", { count: "exact", head: true })
+        .eq("project_id", projectId);
+
+    if (error) throw new Error(error.message);
+    return count || 0;
+}
+
+async function listVirtualProjectFileRecords(projectId: string) {
+    const supabase = getSupabaseServerClient();
+    const { data, error } = await supabase
+        .from("virtual_project_files")
+        .select("*")
+        .eq("project_id", projectId)
+        .order("sort_order", { ascending: true })
+        .order("path", { ascending: true });
+
+    if (error) throw new Error(error.message);
+    return (data || []) as VirtualProjectFileRecord[];
+}
+
+export async function createVirtualProject(params: {
+    workspaceId?: string | null;
+    conversationId: string;
+    sourceMessageId?: string | null;
+    kind: VirtualProjectKind;
+    title: string;
+    prompt: string;
+    status?: VirtualProjectStatus;
+    entryFile: string;
+    previewMode: VirtualProjectPreviewMode;
+    manifest?: Record<string, unknown> | null;
+    lastRunSummary?: VirtualProjectRunSummary | null;
+    lastError?: string | null;
+    files: Array<{
+        path: string;
+        language: string;
+        content: string;
+        isEntry?: boolean;
+        sortOrder?: number;
+    }>;
+}) {
+    const supabase = getSupabaseServerClient();
+    const now = new Date().toISOString();
+    const project = {
+        id: crypto.randomUUID(),
+        workspace_id: params.workspaceId || null,
+        conversation_id: params.conversationId,
+        source_message_id: params.sourceMessageId || null,
+        kind: params.kind,
+        title: params.title.trim().slice(0, 160),
+        prompt: params.prompt,
+        status: params.status || "ready",
+        entry_file: params.entryFile,
+        preview_mode: params.previewMode,
+        manifest_json: params.manifest || {},
+        last_run_summary: params.lastRunSummary || null,
+        last_error: params.lastError || null,
+        created_at: now,
+        updated_at: now,
+    };
+
+    const { data, error } = await supabase
+        .from("virtual_projects")
+        .insert(project)
+        .select("*")
+        .single();
+    if (error) throw new Error(error.message);
+
+    await replaceVirtualProjectFiles(data.id, params.files);
+    return getVirtualProjectWithFiles(data.id);
+}
+
+export async function updateVirtualProject(
+    projectId: string,
+    updates: {
+        sourceMessageId?: string | null;
+        title?: string;
+        prompt?: string;
+        status?: VirtualProjectStatus;
+        entryFile?: string;
+        previewMode?: VirtualProjectPreviewMode;
+        manifest?: Record<string, unknown> | null;
+        lastRunSummary?: VirtualProjectRunSummary | null;
+        lastError?: string | null;
+    }
+) {
+    const supabase = getSupabaseServerClient();
+    const payload: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+    };
+
+    if (updates.sourceMessageId !== undefined) payload.source_message_id = updates.sourceMessageId;
+    if (updates.title !== undefined) payload.title = updates.title.trim().slice(0, 160);
+    if (updates.prompt !== undefined) payload.prompt = updates.prompt;
+    if (updates.status !== undefined) payload.status = updates.status;
+    if (updates.entryFile !== undefined) payload.entry_file = updates.entryFile;
+    if (updates.previewMode !== undefined) payload.preview_mode = updates.previewMode;
+    if (updates.manifest !== undefined) payload.manifest_json = updates.manifest || {};
+    if (updates.lastRunSummary !== undefined) payload.last_run_summary = updates.lastRunSummary;
+    if (updates.lastError !== undefined) payload.last_error = updates.lastError;
+
+    const { data, error } = await supabase
+        .from("virtual_projects")
+        .update(payload)
+        .eq("id", projectId)
+        .select("*")
+        .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!data) {
+        return null;
+    }
+
+    const fileCount = await countVirtualProjectFiles(projectId);
+    return mapVirtualProjectSummary(data as VirtualProjectRecord, fileCount);
+}
+
+export async function replaceVirtualProjectFiles(
+    projectId: string,
+    files: Array<{
+        path: string;
+        language: string;
+        content: string;
+        isEntry?: boolean;
+        sortOrder?: number;
+    }>
+) {
+    const supabase = getSupabaseServerClient();
+    const now = new Date().toISOString();
+
+    const { error: deleteError } = await supabase
+        .from("virtual_project_files")
+        .delete()
+        .eq("project_id", projectId);
+    if (deleteError) throw new Error(deleteError.message);
+
+    if (files.length) {
+        const payload = files.map((file, index) => ({
+            id: crypto.randomUUID(),
+            project_id: projectId,
+            path: file.path,
+            language: file.language,
+            content: file.content,
+            is_entry: Boolean(file.isEntry),
+            sort_order: file.sortOrder ?? index,
+            created_at: now,
+            updated_at: now,
+        }));
+
+        const { error: insertError } = await supabase
+            .from("virtual_project_files")
+            .insert(payload);
+        if (insertError) throw new Error(insertError.message);
+    }
+
+    const { error: projectError } = await supabase
+        .from("virtual_projects")
+        .update({ updated_at: now })
+        .eq("id", projectId);
+    if (projectError) throw new Error(projectError.message);
+
+    const fileRecords = await listVirtualProjectFileRecords(projectId);
+    return fileRecords.map(mapVirtualProjectFile);
+}
+
+export async function getVirtualProjectById(projectId: string) {
+    const supabase = getSupabaseServerClient();
+    const { data, error } = await supabase
+        .from("virtual_projects")
+        .select("*")
+        .eq("id", projectId)
+        .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!data) {
+        return null;
+    }
+
+    const fileCount = await countVirtualProjectFiles(projectId);
+    return mapVirtualProjectSummary(data as VirtualProjectRecord, fileCount);
+}
+
+export async function getVirtualProjectWithFiles(projectId: string) {
+    const supabase = getSupabaseServerClient();
+    const { data, error } = await supabase
+        .from("virtual_projects")
+        .select("*")
+        .eq("id", projectId)
+        .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!data) {
+        return null;
+    }
+
+    const fileRecords = await listVirtualProjectFileRecords(projectId);
+    return mapVirtualProject(data as VirtualProjectRecord, fileRecords);
+}
+
+export async function getLatestConversationVirtualProject(conversationId: string) {
+    const supabase = getSupabaseServerClient();
+    const { data, error } = await supabase
+        .from("virtual_projects")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!data) {
+        return null;
+    }
+
+    const fileRecords = await listVirtualProjectFileRecords(data.id);
+    return mapVirtualProject(data as VirtualProjectRecord, fileRecords);
+}
+
+export async function updateVirtualProjectRunState(
+    projectId: string,
+    params: {
+        status: VirtualProjectStatus;
+        lastRunSummary?: VirtualProjectRunSummary | null;
+        lastError?: string | null;
+    }
+) {
+    return updateVirtualProject(projectId, {
+        status: params.status,
+        lastRunSummary: params.lastRunSummary,
+        lastError: params.lastError,
+    });
 }
