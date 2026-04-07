@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { orchestrateChat } from "@/app/lib/orchestrator/service";
+import * as orchestratorService from "@/app/lib/orchestrator/service";
 import { hasSupabaseConfig } from "@/app/lib/database/supabase";
 import { getErrorMessage } from "@/app/lib/utils/errors";
 
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Message is required." }, { status: 400 });
         }
 
-        const result = await orchestrateChat({
+        const input = {
             message: body.message,
             mode: body.mode === "agent" ? "agent" : "chat",
             selectedModel: body.selectedModel,
@@ -28,7 +28,18 @@ export async function POST(req: NextRequest) {
             conversationId: body.conversationId || null,
             attachments: Array.isArray(body.attachments) ? body.attachments : [],
             capabilities: body.capabilities || {},
-        });
+        } as Parameters<typeof orchestratorService.orchestrateChat>[0];
+
+        const startOrchestrateChat = (
+            orchestratorService as typeof orchestratorService & {
+                startOrchestrateChat?: typeof orchestratorService.orchestrateChat;
+            }
+        ).startOrchestrateChat;
+
+        const result =
+            input.mode === "agent" && typeof startOrchestrateChat === "function"
+                ? await startOrchestrateChat(input)
+                : await orchestratorService.orchestrateChat(input);
 
         return NextResponse.json(result);
     } catch (error: unknown) {

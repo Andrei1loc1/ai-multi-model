@@ -28,6 +28,64 @@ export type AgentArtifact = {
     next_step: string;
 };
 
+export type AgentRunPhase =
+    | "queued"
+    | "planning"
+    | "editing"
+    | "validating"
+    | "previewing"
+    | "repairing"
+    | "finalizing";
+
+export type AgentRunStatus = "running" | "completed" | "failed";
+
+export type AgentRunValidatorOutcome = {
+    key: string;
+    status: "passed" | "failed" | "skipped";
+    message: string;
+    filePaths?: string[];
+};
+
+export type AgentRunEventType =
+    | "run_started"
+    | "phase_changed"
+    | "planner_summary"
+    | "file_touched"
+    | "validator_result"
+    | "preview_started"
+    | "preview_result"
+    | "retry_scheduled"
+    | "run_completed"
+    | "run_failed";
+
+export type AgentRunEvent = {
+    id: string;
+    runId: string;
+    type: AgentRunEventType;
+    timestamp: string;
+    phase?: AgentRunPhase | null;
+    summary?: string | null;
+    filePath?: string | null;
+    validator?: AgentRunValidatorOutcome | null;
+    retryCount?: number | null;
+    payload?: Record<string, unknown> | null;
+};
+
+export type AgentRunReference = {
+    id: string;
+    status: AgentRunStatus;
+    currentPhase: AgentRunPhase;
+    retryCount: number;
+    updatedAt: string;
+};
+
+export type AgentRunSnapshot = AgentRunReference & {
+    conversationId: string;
+    workspaceId: string | null;
+    projectId: string | null;
+    events: AgentRunEvent[];
+};
+
 export type ContextSource =
     | {
           type: "memory";
@@ -161,6 +219,7 @@ export type OrchestratorCapabilities = {
     allowRepo?: boolean;
     allowNotes?: boolean;
     executionMode?: AgentExecutionMode;
+    agentRunId?: string | null;
 };
 
 export type OrchestrateChatInput = {
@@ -196,4 +255,6 @@ export type OrchestrateChatOutput = {
     suggestedActions: string[];
     agent: AgentArtifact | null;
     virtualProject: VirtualProjectReference | null;
+    agentRun?: AgentRunReference | null;
+    runStarted?: boolean;
 };

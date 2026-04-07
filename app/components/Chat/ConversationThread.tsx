@@ -7,6 +7,7 @@ import MarkdownContent from "@/app/components/Response/MarkdownContent";
 import ResponseRenderer from "@/app/components/Response/ResponseRenderer";
 import type {
     AgentArtifact,
+    AgentRunReference,
     MessageAttachmentMetadata,
     VirtualProjectReference,
 } from "@/app/lib/workspaces/types";
@@ -36,6 +37,7 @@ export type ConversationMessageItem = {
         taskType?: string;
         agent?: AgentArtifact | null;
         virtualProject?: VirtualProjectReference | null;
+        agentRun?: AgentRunReference | null;
     } | null;
 };
 

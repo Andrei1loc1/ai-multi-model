@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
     ChevronDown,
     FolderPlus,
@@ -21,6 +21,7 @@ import ModelSelector from "@/app/components/Chat/ModelSelector";
 import ProviderSelector from "@/app/components/Chat/ProviderSelector";
 import type { ConversationMessageItem } from "@/app/components/Chat/ConversationThread";
 import SaveResponseModal from "@/app/components/modals/SaveResponseModal";
+import AgentActivityPanel from "@/app/components/Workspace/AgentActivityPanel";
 import VirtualProjectPanel, {
     type VirtualProjectTab,
 } from "@/app/components/Workspace/VirtualProjectPanel";
@@ -32,6 +33,8 @@ import { buildReactPreviewDocument } from "@/app/lib/virtualProjects/reactRuntim
 import type {
     ImageAttachmentInput,
     MessageAttachmentMetadata,
+    AgentRunEvent,
+    AgentRunSnapshot,
     OrchestrateChatOutput,
     VirtualProject,
     VirtualProjectRunSummary,
@@ -107,6 +110,7 @@ function buildLoadedResult(message: ConversationMessageItem, conversationId: str
         ],
         agent: message.metadata?.agent || null,
         virtualProject: message.metadata?.virtualProject || null,
+        agentRun: message.metadata?.agentRun || null,
     };
 }
 
@@ -148,6 +152,79 @@ function mergeProjectSummary(project: VirtualProject, summary: VirtualProjectSum
     };
 }
 
+function inferReactPreviewEntryFile(project: VirtualProject) {
+    if (project.kind !== "react-app") {
+        return project.entryFile;
+    }
+
+    const preferredCandidates = ["src/main.tsx", "src/main.jsx", "src/main.ts", "src/main.js", "src/index.tsx", "src/index.jsx", "src/index.ts", "src/index.js"];
+    const preferredEntry = preferredCandidates.find((candidate) =>
+        project.files.some((file) => file.path === candidate)
+    );
+
+    return preferredEntry || project.entryFile;
+}
+
+type AgentRunStreamPayload = {
+    run?: AgentRunSnapshot;
+    agentRun?: AgentRunSnapshot;
+    snapshot?: AgentRunSnapshot;
+    event?: AgentRunEvent;
+    events?: AgentRunEvent[];
+    type?: string;
+    status?: AgentRunSnapshot["status"];
+    currentPhase?: AgentRunSnapshot["currentPhase"];
+    retryCount?: number;
+    updatedAt?: string;
+    projectId?: string | null;
+    conversationId?: string;
+    workspaceId?: string | null;
+};
+
+function mergeAgentRunSnapshot(
+    current: AgentRunSnapshot | null,
+    update: Partial<AgentRunSnapshot> & { event?: AgentRunEvent | null; events?: AgentRunEvent[] | null }
+) {
+    if (!current) {
+        if (!update.id) {
+            return null;
+        }
+
+        const initialEvents = Array.isArray(update.events) ? update.events : update.event ? [update.event] : [];
+
+        return {
+            id: update.id,
+            status: update.status || "running",
+            currentPhase: update.currentPhase || "queued",
+            retryCount: update.retryCount ?? 0,
+            updatedAt: update.updatedAt || new Date().toISOString(),
+            conversationId: update.conversationId || "",
+            workspaceId: update.workspaceId ?? null,
+            projectId: update.projectId ?? null,
+            events: initialEvents,
+        };
+    }
+
+    const nextEvents = Array.isArray(update.events)
+        ? update.events
+        : update.event
+        ? [...current.events, update.event]
+        : current.events;
+
+    return {
+        ...current,
+        ...update,
+        status: update.status || current.status,
+        currentPhase: update.currentPhase || current.currentPhase,
+        retryCount: update.retryCount ?? current.retryCount,
+        updatedAt: update.updatedAt || current.updatedAt,
+        conversationId: update.conversationId || current.conversationId,
+        workspaceId: update.workspaceId !== undefined ? update.workspaceId : current.workspaceId,
+        projectId: update.projectId !== undefined ? update.projectId : current.projectId,
+        events: nextEvents,
+    };
+}
+
 export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
     const [input, setInput] = useState("");
     const [messages, setMessages] = useState<ConversationMessageItem[]>([]);
@@ -166,7 +243,8 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
     const [imageAttachments, setImageAttachments] = useState<ChatImageAttachmentDraft[]>([]);
     const [result, setResult] = useState<OrchestrateChatOutput | null>(null);
     const [activeProject, setActiveProject] = useState<VirtualProject | null>(null);
-    const [activeProjectTab, setActiveProjectTab] = useState<VirtualProjectTab>("overview");
+    const [activeProjectTab, setActiveProjectTab] = useState<VirtualProjectTab>("files");
+    const [activeAgentRun, setActiveAgentRun] = useState<AgentRunSnapshot | null>(null);
     const [selectedProjectFilePath, setSelectedProjectFilePath] = useState<string | null>(null);
     const [previewStatus, setPreviewStatus] = useState<VirtualProjectPreviewStatus>("idle");
     const [previewLogs, setPreviewLogs] = useState<string[]>([]);
@@ -180,6 +258,13 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
     const imageUploadSequenceRef = useRef(0);
     const imageAttachmentsRef = useRef<ChatImageAttachmentDraft[]>([]);
     const pythonRuntimeRef = useRef<PythonRuntimeSession | null>(null);
+    const agentRunEventSourceRef = useRef<EventSource | null>(null);
+    const activeAgentRunRef = useRef<AgentRunSnapshot | null>(null);
+    const activeAgentRunIdRef = useRef<string | null>(null);
+    const pendingConversationLoadRef = useRef<string | null>(null);
+    const completedAgentRunRefreshRef = useRef<string | null>(null);
+    const pendingAgentRunPayloadsRef = useRef<AgentRunStreamPayload[]>([]);
+    const agentRunFlushFrameRef = useRef<number | null>(null);
 
     const defaultUploadImageAttachment = useCallback(async (file: File) => {
         const dataUrl = await fileToDataUrl(file);
@@ -216,8 +301,20 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
     }, [imageAttachments]);
 
     useEffect(() => {
+        activeAgentRunRef.current = activeAgentRun;
+    }, [activeAgentRun]);
+
+    useEffect(() => {
+        activeAgentRunIdRef.current = activeAgentRun?.id || null;
+    }, [activeAgentRun?.id]);
+
+    useEffect(() => {
         return () => {
             pythonRuntimeRef.current?.dispose();
+            agentRunEventSourceRef.current?.close();
+            if (agentRunFlushFrameRef.current !== null) {
+                cancelAnimationFrame(agentRunFlushFrameRef.current);
+            }
         };
     }, []);
 
@@ -233,6 +330,8 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         );
     }, [activeProject]);
 
+    const deferredAgentRun = useDeferredValue(activeAgentRun);
+
     const clearImageAttachments = useCallback(() => {
         setImageAttachments((current) => {
             current.forEach((attachment) => {
@@ -246,7 +345,8 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
 
     const resetProjectSurface = useCallback(() => {
         setActiveProject(null);
-        setActiveProjectTab("overview");
+        setActiveAgentRun(null);
+        setActiveProjectTab("files");
         setSelectedProjectFilePath(null);
         setPreviewStatus("idle");
         setPreviewLogs([]);
@@ -265,25 +365,136 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                 throw new Error(data.error || "Failed to load virtual project.");
             }
 
-            setActiveProject(data.project);
-            setSelectedProjectFilePath((current) =>
-                current && data.project?.files.some((file) => file.path === current)
-                    ? current
-                    : data.project?.entryFile || null
-            );
-            setPreviewStatus(data.project.lastError ? "error" : data.project.lastRunSummary ? "ready" : "idle");
-            setPreviewLogs(buildLogsFromRunSummary(data.project.lastRunSummary, data.project.lastError));
-            setReactPreviewDocument(null);
-            setPythonPreviewResult(null);
+            const project = data.project;
+            startTransition(() => {
+                setActiveProject(project);
+                setSelectedProjectFilePath((current) =>
+                    current && project.files.some((file) => file.path === current)
+                        ? current
+                        : project.entryFile || null
+                );
+                setPreviewStatus(project.lastError ? "error" : project.lastRunSummary ? "ready" : "idle");
+                setPreviewLogs(buildLogsFromRunSummary(project.lastRunSummary, project.lastError));
+                setReactPreviewDocument(null);
+                setPythonPreviewResult(null);
 
-            if (nextTab) {
-                setActiveProjectTab(nextTab);
-            }
+                if (nextTab) {
+                    setActiveProjectTab(nextTab);
+                }
+            });
 
             return data.project;
         },
         []
     );
+
+    const loadAgentRun = useCallback(async (runId: string) => {
+        const res = await fetch(`/api/agent-runs/${runId}`, {
+            cache: "no-store",
+        });
+        const data = (await res.json()) as { run?: AgentRunSnapshot; error?: string };
+
+        if (!res.ok || !data.run) {
+            throw new Error(data.error || "Failed to load agent run.");
+        }
+
+        const run = data.run;
+        startTransition(() => {
+            setActiveAgentRun(run);
+        });
+        if (run.status !== "running" && completedAgentRunRefreshRef.current === run.id) {
+            completedAgentRunRefreshRef.current = null;
+        }
+        return run;
+    }, []);
+
+    const closeAgentRunStream = useCallback(() => {
+        agentRunEventSourceRef.current?.close();
+        agentRunEventSourceRef.current = null;
+    }, []);
+
+    const applyAgentRunPayload = useCallback(
+        (current: AgentRunSnapshot | null, payload: AgentRunStreamPayload) => {
+            const snapshot = payload.run || payload.agentRun || payload.snapshot;
+            const streamEvent = payload.event || null;
+
+            if (!snapshot && !streamEvent && !payload.type) {
+                return current;
+            }
+
+            const nextBase = snapshot
+                ? mergeAgentRunSnapshot(current, snapshot)
+                : mergeAgentRunSnapshot(current, {
+                      id: current?.id || activeAgentRunIdRef.current || "",
+                      status: payload.status || current?.status,
+                      currentPhase: payload.currentPhase || current?.currentPhase,
+                      retryCount: payload.retryCount ?? current?.retryCount,
+                      updatedAt: payload.updatedAt || current?.updatedAt,
+                      projectId: payload.projectId ?? current?.projectId,
+                      conversationId: payload.conversationId || current?.conversationId,
+                      workspaceId: payload.workspaceId ?? current?.workspaceId,
+                      event: streamEvent,
+                  });
+
+            if (!nextBase) {
+                return current;
+            }
+
+            if (streamEvent?.id && nextBase.events.some((event) => event.id === streamEvent.id)) {
+                return {
+                    ...nextBase,
+                    events: nextBase.events.map((event) => (event.id === streamEvent.id ? streamEvent : event)),
+                };
+            }
+
+            if (streamEvent) {
+                nextBase.events = [...nextBase.events, streamEvent];
+            }
+
+            if (payload.events?.length) {
+                const seen = new Set(nextBase.events.map((event) => event.id));
+                for (const event of payload.events) {
+                    if (!seen.has(event.id)) {
+                        nextBase.events.push(event);
+                        seen.add(event.id);
+                    }
+                }
+            }
+
+            if (nextBase.events.length > 120) {
+                nextBase.events = nextBase.events.slice(-120);
+            }
+
+            return nextBase;
+        },
+        []
+    );
+
+    const flushAgentRunPayloads = useCallback(() => {
+        agentRunFlushFrameRef.current = null;
+        const pendingPayloads = pendingAgentRunPayloadsRef.current;
+        pendingAgentRunPayloadsRef.current = [];
+
+        if (!pendingPayloads.length) {
+            return;
+        }
+
+        startTransition(() => {
+            setActiveAgentRun((current) => pendingPayloads.reduce((next, payload) => applyAgentRunPayload(next, payload), current));
+        });
+    }, [applyAgentRunPayload]);
+
+    const handleAgentRunStreamPayload = useCallback((payload: AgentRunStreamPayload) => {
+        pendingAgentRunPayloadsRef.current.push(payload);
+
+        if (agentRunFlushFrameRef.current !== null) {
+            return;
+        }
+
+        agentRunFlushFrameRef.current = requestAnimationFrame(() => {
+            flushAgentRunPayloads();
+        });
+    }, [flushAgentRunPayloads]);
 
     const persistProjectSummary = useCallback(async (projectId: string, body: Record<string, unknown>) => {
         const res = await fetch(`/api/virtual-projects/${projectId}`, {
@@ -327,21 +538,23 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
             const res = await fetch("/api/workspaces", { cache: "no-store" });
             const data = await res.json();
             const nextWorkspaces = data.workspaces || [];
-            setWorkspaces(nextWorkspaces);
-            setConversations(data.conversations || []);
+            startTransition(() => {
+                setWorkspaces(nextWorkspaces);
+                setConversations(data.conversations || []);
 
-            const targetWorkspaceId =
-                (preferredWorkspaceId && nextWorkspaces.some((workspace: Workspace) => workspace.id === preferredWorkspaceId)
-                    ? preferredWorkspaceId
-                    : null) ||
-                (selectedWorkspaceId && nextWorkspaces.some((workspace: Workspace) => workspace.id === selectedWorkspaceId)
-                    ? selectedWorkspaceId
-                    : null) ||
-                (nextWorkspaces[0]?.id ?? null);
+                const targetWorkspaceId =
+                    (preferredWorkspaceId && nextWorkspaces.some((workspace: Workspace) => workspace.id === preferredWorkspaceId)
+                        ? preferredWorkspaceId
+                        : null) ||
+                    (selectedWorkspaceId && nextWorkspaces.some((workspace: Workspace) => workspace.id === selectedWorkspaceId)
+                        ? selectedWorkspaceId
+                        : null) ||
+                    (nextWorkspaces[0]?.id ?? null);
 
-            if (targetWorkspaceId !== selectedWorkspaceId) {
-                setSelectedWorkspaceId(targetWorkspaceId);
-            }
+                if (targetWorkspaceId !== selectedWorkspaceId) {
+                    setSelectedWorkspaceId(targetWorkspaceId);
+                }
+            });
         } catch (loadError) {
             console.error(loadError);
         }
@@ -370,19 +583,181 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         const latestAssistant =
             [...threadMessages].reverse().find((message) => message.role === "assistant") || null;
 
-        setMessages(threadMessages);
-        setMode(data.conversation.mode === "agent" ? "agent" : "chat");
-        setSelectedWorkspaceId(data.conversation.workspace_id || null);
-        setResult(latestAssistant ? buildLoadedResult(latestAssistant, data.conversation.id) : null);
+        startTransition(() => {
+            setMessages(threadMessages);
+            setMode(data.conversation.mode === "agent" ? "agent" : "chat");
+            setSelectedWorkspaceId(data.conversation.workspace_id || null);
+            setResult(latestAssistant ? buildLoadedResult(latestAssistant, data.conversation.id) : null);
+        });
         if (data.latestProject?.id) {
             await loadVirtualProject(data.latestProject.id);
         } else {
             resetProjectSurface();
         }
+        const latestRunId = latestAssistant?.metadata?.agentRun?.id || null;
+        if (latestRunId) {
+            await loadAgentRun(latestRunId).catch(() => {
+                setActiveAgentRun(null);
+            });
+        } else {
+            setActiveAgentRun(null);
+        }
         setStatusMessage(`Loaded conversation: ${data.conversation.title}`);
         setError(null);
         return data;
-    }, [loadVirtualProject, resetProjectSurface]);
+    }, [loadAgentRun, loadVirtualProject, resetProjectSurface]);
+
+    const refreshAgentRunState = useCallback(async (run: AgentRunSnapshot) => {
+        await loadConversationThread(run.conversationId);
+
+        if (run.projectId) {
+            await loadVirtualProject(run.projectId).catch(() => undefined);
+        }
+
+        await loadWorkspaceState(run.workspaceId || undefined);
+    }, [loadConversationThread, loadVirtualProject, loadWorkspaceState]);
+
+    const refreshCompletedAgentRunState = useCallback(
+        async (run: AgentRunSnapshot) => {
+            if (completedAgentRunRefreshRef.current === run.id) {
+                return;
+            }
+
+            completedAgentRunRefreshRef.current = run.id;
+
+            await refreshAgentRunState(run);
+        },
+        [refreshAgentRunState]
+    );
+
+    useEffect(() => {
+        const runId = activeAgentRun?.id || null;
+        const runStatus = activeAgentRun?.status || null;
+
+        if (!runId || runStatus !== "running") {
+            closeAgentRunStream();
+            return;
+        }
+
+        completedAgentRunRefreshRef.current = null;
+
+        const eventSource = new EventSource(`/api/agent-runs/${runId}/events`);
+        agentRunEventSourceRef.current = eventSource;
+
+        const handleTerminalRun = (nextRun: AgentRunSnapshot | null, status: "completed" | "failed") => {
+            const currentRun = activeAgentRunRef.current;
+            const terminalRun =
+                nextRun ||
+                mergeAgentRunSnapshot(currentRun, {
+                    id: runId,
+                    status,
+                    currentPhase: currentRun?.currentPhase,
+                    retryCount: currentRun?.retryCount,
+                    updatedAt: new Date().toISOString(),
+                    projectId: currentRun?.projectId,
+                    conversationId: currentRun?.conversationId,
+                    workspaceId: currentRun?.workspaceId,
+                });
+
+            if (!terminalRun) {
+                return;
+            }
+
+            startTransition(() => {
+                setActiveAgentRun(terminalRun);
+            });
+            closeAgentRunStream();
+            void refreshCompletedAgentRunState(terminalRun).catch((refreshError: unknown) => {
+                setError(refreshError instanceof Error ? refreshError.message : "Failed to refresh completed agent run.");
+            });
+        };
+
+        const handleStreamMessage = (event: MessageEvent, eventName?: "snapshot" | "event" | "done") => {
+            if (activeAgentRunIdRef.current !== runId) {
+                return;
+            }
+
+            if (!event.data) {
+                if (eventName === "done") {
+                    handleTerminalRun(activeAgentRunRef.current, activeAgentRunRef.current?.status === "failed" ? "failed" : "completed");
+                }
+                return;
+            }
+
+            try {
+                const parsed = JSON.parse(event.data) as AgentRunStreamPayload | AgentRunSnapshot | AgentRunEvent;
+                const isObjectPayload = typeof parsed === "object" && parsed !== null;
+                const payload =
+                    eventName === "event"
+                        ? ((isObjectPayload && "event" in parsed)
+                              ? (parsed as AgentRunStreamPayload)
+                              : ({ event: parsed as AgentRunEvent } as AgentRunStreamPayload))
+                        : eventName === "snapshot"
+                        ? ((isObjectPayload && ("snapshot" in parsed || "run" in parsed || "agentRun" in parsed))
+                              ? (parsed as AgentRunStreamPayload)
+                              : ({ snapshot: parsed as AgentRunSnapshot } as AgentRunStreamPayload))
+                        : isObjectPayload && ("snapshot" in parsed || "run" in parsed || "agentRun" in parsed || "event" in parsed || "events" in parsed)
+                        ? (parsed as AgentRunStreamPayload)
+                        : ({ snapshot: parsed as AgentRunSnapshot } as AgentRunStreamPayload);
+                handleAgentRunStreamPayload(payload);
+
+                const nextStatus =
+                    payload.status ||
+                    payload.run?.status ||
+                    payload.agentRun?.status ||
+                    payload.snapshot?.status ||
+                    (eventName === "done" ? "completed" : null);
+                const nextPhase =
+                    payload.currentPhase || payload.run?.currentPhase || payload.agentRun?.currentPhase || payload.snapshot?.currentPhase;
+
+                if (nextStatus === "completed" || nextStatus === "failed") {
+                    const currentRun = activeAgentRunRef.current;
+                    const terminalRun = payload.run || payload.agentRun || payload.snapshot;
+                    const completedRun =
+                        terminalRun ||
+                        mergeAgentRunSnapshot(currentRun, {
+                            id: runId,
+                            status: nextStatus,
+                            currentPhase: nextPhase || currentRun?.currentPhase,
+                            retryCount: payload.retryCount ?? currentRun?.retryCount,
+                            updatedAt: payload.updatedAt || new Date().toISOString(),
+                            projectId: payload.projectId ?? currentRun?.projectId,
+                            conversationId: payload.conversationId || currentRun?.conversationId,
+                            workspaceId: payload.workspaceId ?? currentRun?.workspaceId,
+                        });
+
+                    handleTerminalRun(completedRun, nextStatus);
+                }
+            } catch (parseError) {
+                console.error(parseError);
+            }
+        };
+
+        const handleSnapshotEvent = (event: MessageEvent) => handleStreamMessage(event, "snapshot");
+        const handleProgressEvent = (event: MessageEvent) => handleStreamMessage(event, "event");
+        const handleDoneEvent = (event: MessageEvent) => handleStreamMessage(event, "done");
+
+        eventSource.addEventListener("snapshot", handleSnapshotEvent);
+        eventSource.addEventListener("event", handleProgressEvent);
+        eventSource.addEventListener("done", handleDoneEvent);
+        eventSource.onmessage = (event) => handleStreamMessage(event);
+
+        eventSource.onerror = () => {
+            if (activeAgentRunIdRef.current === runId && activeAgentRunRef.current?.status === "running") {
+                setStatusMessage("Agent run stream disconnected. Waiting for the run to finish.");
+            }
+        };
+
+        return () => {
+            eventSource.removeEventListener("snapshot", handleSnapshotEvent);
+            eventSource.removeEventListener("event", handleProgressEvent);
+            eventSource.removeEventListener("done", handleDoneEvent);
+            eventSource.close();
+            if (agentRunEventSourceRef.current === eventSource) {
+                agentRunEventSourceRef.current = null;
+            }
+        };
+    }, [activeAgentRun?.id, activeAgentRun?.status, closeAgentRunStream, handleAgentRunStreamPayload, refreshCompletedAgentRunState]);
 
     useEffect(() => {
         void loadWorkspaceState();
@@ -416,6 +791,10 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
 
             try {
                 if (cancelled) return;
+                if (pendingConversationLoadRef.current === selectedConversationId) {
+                    pendingConversationLoadRef.current = null;
+                    return;
+                }
                 await loadConversationThread(selectedConversationId);
             } catch (loadError: unknown) {
                 if (!cancelled) {
@@ -650,23 +1029,23 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         anchor.remove();
     }, [activeProject]);
 
-    const handleRunVirtualProject = useCallback(async () => {
-        if (!activeProject) {
-            return;
-        }
-
+    const runVirtualProjectPreview = useCallback(async (
+        project: VirtualProject,
+        nextTab: VirtualProjectTab = "preview"
+    ) => {
         setError(null);
-        setActiveProjectTab("preview");
+        setActiveProjectTab(nextTab);
         setPreviewLogs([]);
         setReactPreviewDocument(null);
         setPythonPreviewResult(null);
 
-        if (activeProject.kind === "react-app") {
+        if (project.kind === "react-app") {
             setPreviewStatus("loading");
+            const previewEntryFile = inferReactPreviewEntryFile(project);
             const build = buildReactPreviewDocument({
-                title: activeProject.title,
-                entryFile: activeProject.entryFile,
-                files: activeProject.files.map((file) => ({
+                title: project.title,
+                entryFile: previewEntryFile,
+                files: project.files.map((file) => ({
                     path: file.path,
                     language: file.language,
                     content: file.content,
@@ -677,7 +1056,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                 const errorMessage = build.errors.join("\n");
                 setPreviewStatus("error");
                 setPreviewLogs(build.errors);
-                await persistProjectSummary(activeProject.id, {
+                await persistProjectSummary(project.id, {
                     status: "error",
                     lastRunSummary: {
                         status: "error",
@@ -698,7 +1077,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
             ];
             setPreviewLogs(logs);
             setPreviewStatus("ready");
-            await persistProjectSummary(activeProject.id, {
+            await persistProjectSummary(project.id, {
                 status: "ready",
                 lastRunSummary: {
                     status: "success",
@@ -712,9 +1091,9 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
             return;
         }
 
-        const entryFile = activeProject.files.find((file) => file.path === activeProject.entryFile);
+        const entryFile = project.files.find((file) => file.path === project.entryFile);
         if (!entryFile) {
-            const errorMessage = `Entry file ${activeProject.entryFile} was not found.`;
+            const errorMessage = `Entry file ${project.entryFile} was not found.`;
             setPreviewStatus("error");
             setPreviewLogs([errorMessage]);
             return;
@@ -736,7 +1115,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                 [runResult.stdout, runResult.stderr, runResult.errorMessage]
                     .filter((value): value is string => Boolean(value && value.trim()))
             );
-            await persistProjectSummary(activeProject.id, {
+            await persistProjectSummary(project.id, {
                 status: runResult.status === "success" ? "ready" : "error",
                 lastRunSummary: {
                     status: runResult.status === "success" ? "success" : "error",
@@ -751,7 +1130,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
             const errorMessage = runError instanceof Error ? runError.message : "Python runtime failed.";
             setPreviewStatus("error");
             setPreviewLogs([errorMessage]);
-            await persistProjectSummary(activeProject.id, {
+            await persistProjectSummary(project.id, {
                 status: "error",
                 lastRunSummary: {
                     status: "error",
@@ -763,7 +1142,15 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                 lastError: errorMessage,
             }).catch(() => undefined);
         }
-    }, [activeProject, persistProjectSummary]);
+    }, [persistProjectSummary]);
+
+    const handleRunVirtualProject = useCallback(async () => {
+        if (!activeProject) {
+            return;
+        }
+
+        await runVirtualProjectPreview(activeProject);
+    }, [activeProject, runVirtualProjectPreview]);
 
     const sendMessage = async () => {
         const outgoingMessage = input.trim();
@@ -827,6 +1214,8 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
             },
         ]);
 
+        const previousProjectId = activeProject?.id || null;
+
         try {
             const res = await fetch("/api/orchestrate/chat", {
                 method: "POST",
@@ -856,14 +1245,42 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
             setResult(data);
             setStatusMessage(`Using ${data.modelUsed.id} on ${data.modelUsed.provider} via ${data.modelUsed.profile}.`);
             clearImageAttachments();
-            await loadWorkspaceState();
+            const agentRunStarted = mode === "agent" && Boolean((data as OrchestrateChatOutput & { runStarted?: boolean }).runStarted && data.agentRun?.id);
 
-            if (data.conversationId !== selectedConversationId) {
-                setSelectedConversationId(data.conversationId);
+            if (agentRunStarted && data.agentRun) {
+                const agentRun = data.agentRun;
+                completedAgentRunRefreshRef.current = null;
+                startTransition(() => {
+                    setActiveAgentRun({
+                        ...agentRun,
+                        conversationId: data.conversationId,
+                        workspaceId: selectedWorkspaceId ?? null,
+                        projectId: data.virtualProject?.id ?? null,
+                        events: [],
+                    });
+                });
+                if (data.conversationId !== selectedConversationId) {
+                    pendingConversationLoadRef.current = data.conversationId;
+                    setSelectedConversationId(data.conversationId);
+                }
+                setStatusMessage(`Agent run ${data.agentRun.id} is running and streaming live updates.`);
             } else {
-                await loadConversationThread(data.conversationId);
-                if (data.virtualProject?.id) {
-                    await loadVirtualProject(data.virtualProject.id, "overview");
+                await loadWorkspaceState();
+                if (data.agentRun?.id) {
+                    await loadAgentRun(data.agentRun.id).catch(() => undefined);
+                }
+
+                if (data.conversationId !== selectedConversationId) {
+                    setSelectedConversationId(data.conversationId);
+                } else {
+                    await loadConversationThread(data.conversationId);
+                    if (data.virtualProject?.id) {
+                        const refreshedProject = await loadVirtualProject(data.virtualProject.id, "overview");
+                        if (refreshedProject && previousProjectId === refreshedProject.id) {
+                            setStatusMessage("Updated the current virtual project in place and reran its preview.");
+                            await runVirtualProjectPreview(refreshedProject);
+                        }
+                    }
                 }
             }
         } catch (sendError: unknown) {
@@ -1045,7 +1462,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                     onCreateWorkspace={createWorkspace}
                 />
 
-                <main className="min-w-0 rounded-[24px] border border-white/8 bg-slate-950/74 p-2.5 shadow-[0_18px_60px_rgba(2,6,23,0.42)] backdrop-blur-2xl sm:rounded-[28px] sm:p-3">
+                <main className="min-w-0 rounded-[24px] border border-white/8 bg-slate-950/74 p-2.5 shadow-[0_18px_60px_rgba(2,6,23,0.42)] backdrop-blur-xl sm:rounded-[28px] sm:p-3">
                     <div className="grid gap-2.5 sm:gap-3">
                         <section className="rounded-[22px] border border-white/6 bg-white/[0.03] p-3 sm:rounded-[26px] sm:p-4">
                             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -1061,7 +1478,12 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                                         {(["chat", "agent"] as const).map((item) => (
                                             <button
                                                 key={item}
-                                                onClick={() => setMode(item)}
+                                                onClick={() => {
+                                                    setMode(item);
+                                                    if (item === "agent" && activeProjectTab === "overview") {
+                                                        setActiveProjectTab("files");
+                                                    }
+                                                }}
                                                 className={`rounded-full px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.24em] transition sm:px-4 sm:py-2 sm:text-xs ${
                                                     mode === item ? "bg-cyan-300/18 text-white" : "text-slate-400"
                                                 }`}
@@ -1072,18 +1494,20 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                                     </div>
 
                                     {mode === "agent" && (
-                                        <div className="flex rounded-full border border-white/8 bg-white/[0.03] p-1">
-                                            {(["draft", "apply"] as const).map((item) => (
-                                                <button
-                                                    key={item}
-                                                    onClick={() => setExecutionMode(item)}
-                                                    className={`rounded-full px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.24em] transition sm:px-4 sm:py-2 sm:text-xs ${
-                                                        executionMode === item ? "bg-violet-300/18 text-white" : "text-slate-400"
-                                                    }`}
-                                                >
-                                                    {item}
-                                                </button>
-                                            ))}
+                                        <div className="flex items-center gap-2 rounded-2xl border border-white/8 bg-white/[0.03] px-2.5 py-1.5">
+                                            <span className="text-[9px] uppercase tracking-[0.28em] text-slate-500">
+                                                Mode
+                                            </span>
+                                            <select
+                                                value={executionMode}
+                                                onChange={(event) =>
+                                                    setExecutionMode(event.target.value as "draft" | "apply")
+                                                }
+                                                className="rounded-xl border border-white/8 bg-slate-950/75 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-white outline-none transition hover:border-violet-300/20 focus:border-violet-300/30"
+                                            >
+                                                <option value="draft">Draft</option>
+                                                <option value="apply">Apply</option>
+                                            </select>
                                         </div>
                                     )}
                                 </div>
@@ -1211,20 +1635,49 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                             />
 
                             {(mode === "agent" || activeProject) && (
-                                <div className="mt-3">
-                                    <VirtualProjectPanel
-                                        project={activeProject}
-                                        activeTab={activeProjectTab}
-                                        onTabChange={setActiveProjectTab}
-                                        selectedFilePath={selectedProjectFilePath}
-                                        onSelectedFilePathChange={setSelectedProjectFilePath}
-                                        previewStatus={previewStatus}
-                                        previewLogs={previewLogs}
-                                        previewElement={previewElement}
-                                        onRun={handleRunVirtualProject}
-                                        onDownload={handleDownloadVirtualProject}
-                                    />
-                                </div>
+                                <section className="mt-3 rounded-[22px] border border-white/6 bg-slate-950/55 p-3 sm:rounded-[24px]">
+                                    <div className="mb-3 flex flex-col gap-2 rounded-[18px] border border-white/6 bg-white/[0.03] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                                        <div className="min-w-0">
+                                            <div className="text-[9px] uppercase tracking-[0.28em] text-slate-500">
+                                                Agent workspace
+                                            </div>
+                                            <div className="mt-1 text-sm text-white">
+                                                Live run activity and project files stay in one compact surface.
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400">
+                                            <span className="rounded-full border border-white/8 bg-slate-950/70 px-2.5 py-1 uppercase tracking-[0.18em] text-slate-300">
+                                                {activeProjectTab}
+                                            </span>
+                                            {activeProject ? (
+                                                <span className="rounded-full border border-white/8 bg-slate-950/70 px-2.5 py-1">
+                                                    {activeProject.files.length} files
+                                                </span>
+                                            ) : null}
+                                        </div>
+                                    </div>
+
+                                    <div className="grid gap-3 xl:grid-cols-[minmax(300px,0.8fr)_minmax(0,1.45fr)] xl:items-start">
+                                        <AgentActivityPanel
+                                            run={deferredAgentRun}
+                                            events={deferredAgentRun?.events || []}
+                                            compact
+                                        />
+                                        <VirtualProjectPanel
+                                            project={activeProject}
+                                            activeTab={activeProjectTab}
+                                            onTabChange={setActiveProjectTab}
+                                            selectedFilePath={selectedProjectFilePath}
+                                            onSelectedFilePathChange={setSelectedProjectFilePath}
+                                            previewStatus={previewStatus}
+                                            previewLogs={previewLogs}
+                                            previewElement={previewElement}
+                                            onRun={handleRunVirtualProject}
+                                            onDownload={handleDownloadVirtualProject}
+                                            compact
+                                        />
+                                    </div>
+                                </section>
                             )}
 
                             <div className="sticky bottom-2 mt-2.5 rounded-[16px] border border-white/8 bg-slate-950/95 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] backdrop-blur-xl sm:bottom-0 sm:mt-3 sm:rounded-[18px] sm:pb-2">

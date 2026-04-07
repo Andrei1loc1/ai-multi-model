@@ -623,6 +623,47 @@ export async function updateVirtualProject(
     return mapVirtualProjectSummary(data as VirtualProjectRecord, fileCount);
 }
 
+export async function refreshVirtualProject(
+    projectId: string,
+    params: {
+        sourceMessageId?: string | null;
+        title?: string;
+        prompt?: string;
+        status?: VirtualProjectStatus;
+        entryFile?: string;
+        previewMode?: VirtualProjectPreviewMode;
+        manifest?: Record<string, unknown> | null;
+        lastRunSummary?: VirtualProjectRunSummary | null;
+        lastError?: string | null;
+        files: Array<{
+            path: string;
+            language: string;
+            content: string;
+            isEntry?: boolean;
+            sortOrder?: number;
+        }>;
+    }
+) {
+    const project = await updateVirtualProject(projectId, {
+        sourceMessageId: params.sourceMessageId,
+        title: params.title,
+        prompt: params.prompt,
+        status: params.status,
+        entryFile: params.entryFile,
+        previewMode: params.previewMode,
+        manifest: params.manifest,
+        lastRunSummary: params.lastRunSummary,
+        lastError: params.lastError,
+    });
+
+    if (!project) {
+        return null;
+    }
+
+    await replaceVirtualProjectFiles(projectId, params.files);
+    return getVirtualProjectWithFiles(projectId);
+}
+
 export async function replaceVirtualProjectFiles(
     projectId: string,
     files: Array<{

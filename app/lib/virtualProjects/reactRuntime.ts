@@ -378,9 +378,20 @@ function buildInlineBootstrap(params: {
 
         appRoot.style.background = backgroundColor;
 
-        const element = ReactModule.createElement(entryComponent);
-        const reactRoot = ReactDOMClientModule.createRoot(appRoot);
-        reactRoot.render(element);
+        const canRenderEntryComponent =
+          typeof entryComponent === 'function' ||
+          typeof entryComponent === 'string' ||
+          Boolean(
+            entryComponent &&
+            typeof entryComponent === 'object' &&
+            '$$typeof' in entryComponent
+          );
+
+        if (canRenderEntryComponent) {
+          const element = ReactModule.createElement(entryComponent);
+          const reactRoot = ReactDOMClientModule.createRoot(appRoot);
+          reactRoot.render(element);
+        }
 
         window.parent?.postMessage(
           {
@@ -408,8 +419,8 @@ function buildInlineBootstrap(params: {
 export function buildReactPreviewDocument(input: ReactPreviewBuildInput): ReactPreviewBuildResult {
     try {
         const normalized = normalizeModules(input);
-        const rootId = input.rootId || "virtual-project-root";
-        const backgroundColor = input.backgroundColor || "#09111f";
+        const rootId = input.rootId || "root";
+        const backgroundColor = input.backgroundColor || "transparent";
         const bootstrap = buildInlineBootstrap({
             rootId,
             backgroundColor,
@@ -424,8 +435,7 @@ export function buildReactPreviewDocument(input: ReactPreviewBuildInput): ReactP
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${escapeHtml(normalized.project.title || "Virtual React Project")}</title>
     <style>
-      :root { color-scheme: dark; }
-      html, body { width: 100%; height: 100%; margin: 0; background: ${backgroundColor}; overflow: hidden; }
+      html, body { width: 100%; min-height: 100%; margin: 0; background: ${backgroundColor}; overflow: auto; }
       body { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
       #${rootId} { min-height: 100vh; width: 100%; }
       #virtual-project-error {

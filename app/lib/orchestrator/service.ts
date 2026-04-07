@@ -1,11 +1,14 @@
 import { AIRequestError, aiRequest } from "@/app/lib/chatUtils/aiRequest";
 import { getModel, getModelById } from "@/app/lib/chatUtils/getModel";
 import { buildAgentArtifacts } from "@/app/lib/agents/patch";
+import { createAgentRun, emitAgentRunEvent, updateAgentRun } from "@/app/lib/agents/events";
 import { buildImageContextSources, linkImageAssetsToConversation } from "@/app/lib/images/service";
 import { markMemoryAsUsed, maybeRefreshConversationSummary, persistConversationTurn } from "@/app/lib/memory/service";
 import { getProfileForTask } from "@/app/lib/orchestrator/modelProfiles";
 import { classifyTask } from "@/app/lib/orchestrator/taskClassifier";
+import { analyzeVirtualProject } from "@/app/lib/virtualProjects/analyzer";
 import { validateVirtualProjectPayload } from "@/app/lib/virtualProjects/validate";
+import { runVirtualProjectValidators } from "@/app/lib/virtualProjects/validators";
 import type {
     ContextSource,
     OrchestrateChatInput,
@@ -18,13 +21,17 @@ import {
     createVirtualProject,
     ensureConversation,
     getConversationMessages,
+    getLatestConversationVirtualProject,
     getRelevantMemory,
     getWorkspaceRepoConnection,
     listNotes,
+    refreshVirtualProject,
     searchWorkspaceContext,
     updateVirtualProject,
 } from "@/app/lib/workspaces/service";
 import { scoreTextMatch, uniqueTopByScore } from "@/app/lib/retrieval/scoring";
+
+const MAX_AUTOMATIC_PROJECT_REPAIRS = 2;
 
 function composeContextBlock(label: string, items: ContextSource[]) {
     if (!items.length) return "";
@@ -191,6 +198,69 @@ function inferFilePathFromContext(context: string, language: string, kind: Virtu
     return "src/App.jsx";
 }
 
+function choosePreferredReactEntryFile(
+    files: Array<{ path: string }>,
+    requestedEntryFile?: string
+) {
+    const normalizedRequestedEntry = requestedEntryFile?.replace(/\\/g, "/");
+    const existingPaths = new Set(files.map((file) => file.path.replace(/\\/g, "/")));
+
+    if (normalizedRequestedEntry && existingPaths.has(normalizedRequestedEntry)) {
+        const requestedLooksLikeBootstrap = /(^|\/)(main|index)\.(tsx|ts|jsx|js)$/i.test(normalizedRequestedEntry);
+        if (requestedLooksLikeBootstrap) {
+            return normalizedRequestedEntry;
+        }
+    }
+
+    const preferredCandidates = [
+        "src/main.tsx",
+        "src/main.jsx",
+        "src/main.ts",
+        "src/main.js",
+        "src/index.tsx",
+        "src/index.jsx",
+        "src/index.ts",
+        "src/index.js",
+    ];
+
+    const preferredEntry = preferredCandidates.find((candidate) => existingPaths.has(candidate));
+    if (preferredEntry) {
+        return preferredEntry;
+    }
+
+    if (normalizedRequestedEntry && existingPaths.has(normalizedRequestedEntry)) {
+        return normalizedRequestedEntry;
+    }
+
+    return files[0]?.path || requestedEntryFile || "src/App.jsx";
+}
+
+function remapEditedFilePathToExistingProject(
+    suggestedPath: string,
+    language: string,
+    existingProject: VirtualProject
+) {
+    const normalizedSuggestedPath = suggestedPath.replace(/\\/g, "/").replace(/^\/+/, "");
+    const exactMatch = existingProject.files.find((file) => file.path === normalizedSuggestedPath);
+
+    if (exactMatch) {
+        return exactMatch.path;
+    }
+
+    const extensionMatch = normalizedSuggestedPath.match(/\.([^.\/]+)$/);
+    const extension = extensionMatch ? `.${extensionMatch[1].toLowerCase()}` : "";
+    const normalizedLanguage = language.toLowerCase();
+    const cssCandidates = existingProject.files.filter(
+        (file) => file.path.toLowerCase().endsWith(".css") || file.language.toLowerCase() === "css"
+    );
+
+    if ((extension === ".css" || normalizedLanguage === "css") && cssCandidates.length === 1) {
+        return cssCandidates[0].path;
+    }
+
+    return normalizedSuggestedPath;
+}
+
 function buildFallbackVirtualProjectFromAnswer(message: string, answer: string): VirtualProjectPayload | null {
     const kind = inferVirtualProjectKind(message);
     const codeBlocks = extractCodeBlocks(answer);
@@ -277,11 +347,82 @@ function buildFallbackVirtualProjectFromAnswer(message: string, answer: string):
         kind,
         title: "React Mini App",
         summary: message,
-        entryFile: "src/App.jsx",
+        entryFile: choosePreferredReactEntryFile(
+            files.filter(
+                (file, index, current) => current.findIndex((candidate) => candidate.path === file.path) === index
+            ),
+            hasEntryFile ? "src/main.jsx" : "src/App.jsx"
+        ),
         previewMode: "react",
         files: files.filter(
             (file, index, current) => current.findIndex((candidate) => candidate.path === file.path) === index
         ),
+    };
+}
+
+function buildFallbackUpdatedProjectFromAnswer(
+    answer: string,
+    existingProject: VirtualProject
+): VirtualProjectPayload | null {
+    const codeBlocks = extractCodeBlocks(answer);
+
+    if (!codeBlocks.length) {
+        return null;
+    }
+
+    const mergedFiles = new Map(
+        existingProject.files.map((file) => [
+            file.path,
+            {
+                path: file.path,
+                language: file.language,
+                content: file.content,
+            },
+        ])
+    );
+
+    let touchedFiles = 0;
+
+    for (const block of codeBlocks) {
+        if (!block.content.trim()) {
+            continue;
+        }
+
+        const context = answer.slice(Math.max(0, block.index - 220), block.index);
+        const inferredPath = inferFilePathFromContext(context, block.language, existingProject.kind);
+        const language =
+            block.language === "py"
+                ? "python"
+                : block.language === "js"
+                ? "jsx"
+                : block.language || "text";
+        const path = remapEditedFilePathToExistingProject(inferredPath, language, existingProject);
+        const currentFile = mergedFiles.get(path);
+
+        if (!currentFile || currentFile.content !== block.content || currentFile.language !== language) {
+            touchedFiles += 1;
+        }
+
+        mergedFiles.set(path, {
+            path,
+            language,
+            content: block.content,
+        });
+    }
+
+    if (!touchedFiles) {
+        return null;
+    }
+
+    const files = Array.from(mergedFiles.values()).sort((left, right) => left.path.localeCompare(right.path));
+
+    return {
+        kind: existingProject.kind,
+        title: existingProject.title,
+        summary: existingProject.prompt,
+        entryFile: choosePreferredReactEntryFile(files, existingProject.entryFile),
+        previewMode: existingProject.previewMode,
+        files,
     };
 }
 
@@ -297,25 +438,228 @@ function toVirtualProjectReference(project: VirtualProject): VirtualProjectRefer
     };
 }
 
+function normalizeGeneratedVirtualProject(project: VirtualProjectPayload): VirtualProjectPayload {
+    if (project.kind === "react-app") {
+        return {
+            ...project,
+            entryFile: choosePreferredReactEntryFile(project.files, project.entryFile),
+        };
+    }
+
+    const normalizedEntry = project.files.some((file) => file.path === project.entryFile)
+        ? project.entryFile
+        : project.files[0]?.path || project.entryFile;
+
+    return {
+        ...project,
+        entryFile: normalizedEntry,
+    };
+}
+
+async function repairVirtualProjectFromValidationFailures(params: {
+    model: ReturnType<typeof getModel>;
+    message: string;
+    prompt: string;
+    systemPrompt: string;
+    project: VirtualProjectPayload;
+    failures: ReturnType<typeof runVirtualProjectValidators>;
+    existingProject?: VirtualProject | null;
+}) {
+    const failureLines = params.failures
+        .filter((failure) => failure.status === "failed")
+        .map((failure) => `- ${failure.key}: ${failure.message}`);
+
+    const existingProjectBlock = params.existingProject
+        ? [
+              "Existing virtual project context:",
+              `Project id: ${params.existingProject.id}`,
+              `Entry file: ${params.existingProject.entryFile}`,
+              "Keep working against this same project instead of creating a parallel one.",
+              "",
+          ].join("\n")
+        : "";
+
+    const repairPrompt = [
+        "Repair this virtual project JSON payload so it becomes runnable and validator-safe.",
+        "Return only one JSON object with this exact shape:",
+        '{"kind":"react-app|python-script","title":"string","summary":"string","entryFile":"string","previewMode":"react|pyodide","files":[{"path":"string","language":"string","content":"string"}]}',
+        "Do not return prose or markdown fences.",
+        params.project.kind === "react-app"
+            ? "For React projects, preserve the bootstrap entry file, local import graph, and JSX/CSS contract. Update JSX and CSS together when selectors change."
+            : "For Python projects, keep the script browser-safe and self-contained for Pyodide.",
+        existingProjectBlock,
+        "Validator failures to fix:",
+        ...failureLines,
+        "",
+        "Current candidate JSON:",
+        JSON.stringify(params.project, null, 2),
+        "",
+        "Original user request:",
+        params.message,
+        "",
+        "Relevant context:",
+        params.prompt,
+    ]
+        .filter(Boolean)
+        .join("\n");
+
+    const response = await aiRequest(
+        params.model,
+        {
+            prompt: repairPrompt,
+            systemPrompt: `${params.systemPrompt}\nReturn only valid JSON. No markdown fences, no prose.`,
+            temperature: 0.2,
+        },
+        false
+    );
+
+    const rawText = sanitizeAssistantAnswer("text" in response ? response.text : "");
+    const parsed = JSON.parse(extractJsonObject(rawText)) as VirtualProjectPayload;
+    return normalizeGeneratedVirtualProject(validateVirtualProjectPayload(parsed).project);
+}
+
+async function generateValidatedVirtualProject(params: {
+    model: ReturnType<typeof getModel>;
+    message: string;
+    answer: string;
+    prompt: string;
+    systemPrompt: string;
+    existingProject?: VirtualProject | null;
+    agentRunId?: string | null;
+}) {
+    let attempt = 0;
+    const initialCandidate = await maybeGenerateVirtualProject({
+        model: params.model,
+        message: params.message,
+        answer: params.answer,
+        prompt: params.prompt,
+        systemPrompt: params.systemPrompt,
+        existingProject: params.existingProject,
+    });
+
+    if (!initialCandidate) {
+        throw new Error("Virtual project generation returned no candidate payload.");
+    }
+
+    let candidate = normalizeGeneratedVirtualProject(initialCandidate);
+
+    while (true) {
+        const snapshot = analyzeVirtualProject({
+            kind: candidate.kind,
+            entryFile: candidate.entryFile,
+            files: candidate.files,
+        });
+        const validatorResults = runVirtualProjectValidators(snapshot);
+
+        if (params.agentRunId) {
+            for (const validator of validatorResults) {
+                emitAgentRunEvent(params.agentRunId, {
+                    type: "validator_result",
+                    phase: attempt > 0 ? "repairing" : "validating",
+                    summary: validator.message,
+                    validator: {
+                        key: validator.key,
+                        status: validator.status,
+                        message: validator.message,
+                        filePaths: validator.filePaths,
+                    },
+                });
+            }
+        }
+
+        const failures = validatorResults.filter((validator) => validator.status === "failed");
+        if (!failures.length) {
+            return candidate;
+        }
+
+        if (attempt >= MAX_AUTOMATIC_PROJECT_REPAIRS) {
+            throw new Error(
+                `Virtual project validation failed after ${attempt} repair attempt${attempt === 1 ? "" : "s"}: ${failures
+                    .map((failure) => failure.message)
+                    .join(" | ")}`
+            );
+        }
+
+        attempt += 1;
+        if (params.agentRunId) {
+            updateAgentRun(params.agentRunId, {
+                currentPhase: "repairing",
+                retryCount: attempt,
+            });
+            emitAgentRunEvent(params.agentRunId, {
+                type: "retry_scheduled",
+                phase: "repairing",
+                summary: `Validation failed. Scheduling repair attempt ${attempt} of ${MAX_AUTOMATIC_PROJECT_REPAIRS}.`,
+                retryCount: attempt,
+                payload: {
+                    failureKeys: failures.map((failure) => failure.key),
+                },
+            });
+        }
+
+        candidate = await repairVirtualProjectFromValidationFailures({
+            model: params.model,
+            message: params.message,
+            prompt: params.prompt,
+            systemPrompt: params.systemPrompt,
+            project: candidate,
+            failures,
+            existingProject: params.existingProject,
+        });
+    }
+}
+
 async function maybeGenerateVirtualProject(params: {
     model: ReturnType<typeof getModel>;
     message: string;
     answer: string;
     prompt: string;
     systemPrompt: string;
+    existingProject?: VirtualProject | null;
 }) {
-    if (!shouldGenerateVirtualProject(params.message, "agent")) {
+    if (!params.existingProject && !shouldGenerateVirtualProject(params.message, "agent")) {
         return null;
     }
 
-    const kind = inferVirtualProjectKind(params.message);
+    const requestedKind = inferVirtualProjectKind(params.message);
+    const editableProject =
+        params.existingProject && params.existingProject.kind === requestedKind ? params.existingProject : null;
+    const kind = editableProject?.kind || requestedKind;
+    const existingProjectBlock = editableProject
+        ? [
+              "Existing virtual project:",
+              `Project id: ${editableProject.id}`,
+              `Kind: ${editableProject.kind}`,
+              `Title: ${editableProject.title}`,
+              `Entry file: ${editableProject.entryFile}`,
+              "",
+              "Modify this project in place. Update the existing file set instead of regenerating from scratch.",
+              "Preserve unaffected files when possible. Only add, remove, or rename files when the user request requires it.",
+              "",
+              "Current files:",
+              ...editableProject.files.map((file) => {
+                  const fileHeader = `FILE: ${file.path} (${file.language})`;
+                  return [fileHeader, file.content].join("\n");
+              }),
+              "",
+          ].join("\n")
+        : "";
     const generationPrompt = [
         `Create a runnable browser-safe ${kind === "react-app" ? "React mini app" : "Python script"} as strict JSON.`,
         "Return only one JSON object with this exact shape:",
         '{"kind":"react-app|python-script","title":"string","summary":"string","entryFile":"string","previewMode":"react|pyodide","files":[{"path":"string","language":"string","content":"string"}]}',
         kind === "react-app"
-            ? "Rules: multi-file is allowed, but only local imports plus react and react-dom package imports are allowed. Prefer src/App.tsx as entry."
+            ? "Rules: multi-file is allowed, but only local imports plus react and react-dom package imports are allowed. If a bootstrap file like src/main.jsx or src/main.tsx exists, use that as the entry instead of App.jsx."
             : "Rules: prefer a single entry file named main.py or app.py. Do not rely on external packages, shell access, or filesystem access.",
+        editableProject
+            ? "You are editing an existing virtual project. Return the complete updated project payload for the same project, not a partial patch."
+            : "You are creating a new virtual project.",
+        editableProject && kind === "react-app"
+            ? "When styling an existing React project, modify the stylesheet files that are already imported by the project instead of inventing parallel CSS files. Keep text/background contrast accessible and consistent."
+            : null,
+        editableProject && kind === "react-app"
+            ? "Preserve the existing JSX-to-CSS contract. Reuse existing class names/selectors where possible. Do not invent renamed selectors like new button or container classes unless you also update the corresponding JSX files in the same response."
+            : null,
         "Keep the project small and focused. Do not include explanations outside JSON.",
         "",
         "User request:",
@@ -324,9 +668,13 @@ async function maybeGenerateVirtualProject(params: {
         "Assistant answer summary:",
         params.answer,
         "",
+        existingProjectBlock,
+        existingProjectBlock ? "" : null,
         "Relevant context:",
         params.prompt,
-    ].join("\n");
+    ]
+        .filter((line): line is string => line !== null)
+        .join("\n");
 
     try {
         const response = await aiRequest(
@@ -341,9 +689,20 @@ async function maybeGenerateVirtualProject(params: {
 
         const rawText = sanitizeAssistantAnswer("text" in response ? response.text : "");
         const parsed = JSON.parse(extractJsonObject(rawText)) as VirtualProjectPayload;
-        return validateVirtualProjectPayload(parsed).project;
+        const validated = validateVirtualProjectPayload(parsed).project;
+
+        if (validated.kind === "react-app") {
+            return {
+                ...validated,
+                entryFile: choosePreferredReactEntryFile(validated.files, validated.entryFile),
+            };
+        }
+
+        return validated;
     } catch {
-        const fallbackProject = buildFallbackVirtualProjectFromAnswer(params.message, params.answer);
+        const fallbackProject = editableProject
+            ? buildFallbackUpdatedProjectFromAnswer(params.answer, editableProject)
+            : buildFallbackVirtualProjectFromAnswer(params.message, params.answer);
         if (!fallbackProject) {
             throw new Error("Virtual project generation failed and no code-block fallback could be derived.");
         }
@@ -358,13 +717,35 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
     const { profile, preferredModelId } = getProfileForTask(taskType, input.selectedModel, selectedProvider);
     const isAutoSelection = !input.selectedModel || input.selectedModel === "auto";
     const imageFocusedRequest = isImageFocusedRequest(input.message);
-
     const conversation = await ensureConversation({
         conversationId: input.conversationId,
         workspaceId: input.workspaceId,
         title: input.message.slice(0, 80),
         mode: input.mode,
     });
+    const agentRun = input.mode === "agent"
+        ? input.capabilities?.agentRunId
+            ? {
+                  id: input.capabilities.agentRunId,
+                  status: "running" as const,
+                  currentPhase: "planning" as const,
+                  retryCount: 0,
+                  updatedAt: new Date().toISOString(),
+              }
+            : createAgentRun({
+                  conversationId: conversation.id,
+                  workspaceId: input.workspaceId,
+                  initialPhase: "planning",
+              })
+        : null;
+
+    if (agentRun) {
+        emitAgentRunEvent(agentRun.id, {
+            type: "phase_changed",
+            phase: "planning",
+            summary: "Collecting conversation context and deciding the execution path.",
+        });
+    }
 
     if (input.attachments?.length) {
         await linkImageAssetsToConversation(
@@ -375,7 +756,7 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
     }
 
     const repoConnection = input.workspaceId ? await getWorkspaceRepoConnection(input.workspaceId) : null;
-    const [recentMessages, memoryEntries, repoContext, noteContext, imagePayload] = await Promise.all([
+    const [recentMessages, memoryEntries, repoContext, noteContext, imagePayload, existingVirtualProject] = await Promise.all([
         getConversationMessages(conversation.id, 8),
         input.capabilities?.allowMemory === false
             ? Promise.resolve([])
@@ -393,7 +774,13 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
         input.attachments?.length
             ? buildImageContextSources(input.attachments, input.message, selectedProvider)
             : Promise.resolve({ contextSources: [], messageAttachments: [] }),
+        input.mode === "agent"
+            ? getLatestConversationVirtualProject(conversation.id).catch(() => null)
+            : Promise.resolve(null),
     ]);
+    const wantsVirtualProject =
+        input.mode === "agent" &&
+        (Boolean(existingVirtualProject) || shouldGenerateVirtualProject(input.message, input.mode));
 
     const contextSources: ContextSource[] = [
         ...memoryEntries.map((entry) => ({
@@ -414,6 +801,24 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
 
     const contextBudget = taskType === "coding" ? 12 : 8;
     const selectedSources = contextSources.slice(0, contextBudget);
+
+    if (agentRun) {
+        updateAgentRun(agentRun.id, {
+            projectId: existingVirtualProject?.id || null,
+        });
+        emitAgentRunEvent(agentRun.id, {
+            type: "planner_summary",
+            phase: "planning",
+            summary: wantsVirtualProject
+                ? "This request will run through the virtual-project agent flow."
+                : "This request will use the standard agent reasoning flow.",
+            payload: {
+                taskType,
+                contextSourceCount: selectedSources.length,
+                existingProjectId: existingVirtualProject?.id || null,
+            },
+        });
+    }
 
     const systemPrompt = [
         profile.promptPrefix,
@@ -436,6 +841,9 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
         recentMessages.length
             ? "You are continuing an existing conversation. Resolve references like 'it', 'that', 'there', or follow-up questions using the recent thread below before changing topic."
             : "This may be the first turn of the conversation.",
+        existingVirtualProject
+            ? "A virtual project already exists for this conversation. Keep the user-facing chat answer concise, describe only the key edit outcome, and do not include code blocks."
+            : "If you provide code in the answer, keep it focused and only when needed.",
     ].join("\n");
 
     const prompt = [
@@ -510,6 +918,15 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
     }
 
     const answer = sanitizeAssistantAnswer("text" in response ? response.text : "");
+    if (agentRun) {
+        emitAgentRunEvent(agentRun.id, {
+            type: "phase_changed",
+            phase: "editing",
+            summary: wantsVirtualProject
+                ? "Applying model output to the working virtual project."
+                : "Drafting the assistant response.",
+        });
+    }
     const executionMode = input.capabilities?.executionMode || "draft";
     const agent = input.mode === "agent" && taskType === "coding"
         ? buildAgentArtifacts({
@@ -520,49 +937,139 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
           })
         : null;
     let virtualProjectDetail: VirtualProject | null = null;
+    let virtualProjectFailure: string | null = null;
 
-    if (shouldGenerateVirtualProject(input.message, input.mode)) {
+    if (wantsVirtualProject) {
         try {
-            const generatedProject = await maybeGenerateVirtualProject({
+            const generatedProject = await generateValidatedVirtualProject({
                 model,
                 message: input.message,
                 answer,
                 prompt,
                 systemPrompt,
+                existingProject: existingVirtualProject,
+                agentRunId: agentRun?.id || null,
             });
 
             if (generatedProject) {
-                virtualProjectDetail = await createVirtualProject({
-                    workspaceId: input.workspaceId,
-                    conversationId: conversation.id,
-                    sourceMessageId: null,
-                    kind: generatedProject.kind,
-                    title: generatedProject.title,
-                    prompt: generatedProject.summary,
-                    status: "ready",
-                    entryFile: generatedProject.entryFile,
-                    previewMode: generatedProject.previewMode,
-                    manifest: {
-                        generatedBy: "orchestrator",
-                        modelId: model.id,
-                        provider: model.provider,
-                    },
-                    lastRunSummary: null,
-                    lastError: null,
-                    files: generatedProject.files.map((file, index) => ({
-                        ...file,
-                        isEntry: file.path === generatedProject.entryFile,
-                        sortOrder: index,
-                    })),
-                });
+                if (agentRun) {
+                    emitAgentRunEvent(agentRun.id, {
+                        type: "phase_changed",
+                        phase: "validating",
+                        summary: "Normalizing generated files and preparing project updates.",
+                    });
+                }
+                const normalizedProject = normalizeGeneratedVirtualProject(generatedProject);
+                const normalizedFiles = normalizedProject.files.map((file, index) => ({
+                    ...file,
+                    isEntry: file.path === normalizedProject.entryFile,
+                    sortOrder: index,
+                }));
+
+                if (existingVirtualProject && existingVirtualProject.kind === generatedProject.kind) {
+                    virtualProjectDetail = await refreshVirtualProject(existingVirtualProject.id, {
+                        sourceMessageId: null,
+                        title: normalizedProject.title,
+                        prompt: normalizedProject.summary,
+                        status: "ready",
+                        entryFile: normalizedProject.entryFile,
+                        previewMode: normalizedProject.previewMode,
+                        manifest: {
+                            ...(existingVirtualProject.manifest || {}),
+                            generatedBy: "orchestrator",
+                            modelId: model.id,
+                            provider: model.provider,
+                            mode: "update",
+                        },
+                        lastRunSummary: null,
+                        lastError: null,
+                        files: normalizedFiles,
+                    });
+                } else {
+                    virtualProjectDetail = await createVirtualProject({
+                        workspaceId: input.workspaceId,
+                        conversationId: conversation.id,
+                        sourceMessageId: null,
+                        kind: normalizedProject.kind,
+                        title: normalizedProject.title,
+                        prompt: normalizedProject.summary,
+                        status: "ready",
+                        entryFile: normalizedProject.entryFile,
+                        previewMode: normalizedProject.previewMode,
+                        manifest: {
+                            generatedBy: "orchestrator",
+                            modelId: model.id,
+                            provider: model.provider,
+                            mode: "create",
+                        },
+                        lastRunSummary: null,
+                        lastError: null,
+                        files: normalizedFiles,
+                    });
+                }
+
+                if (agentRun && virtualProjectDetail) {
+                    updateAgentRun(agentRun.id, {
+                        projectId: virtualProjectDetail.id,
+                        currentPhase: "editing",
+                    });
+                    for (const file of normalizedFiles) {
+                        emitAgentRunEvent(agentRun.id, {
+                            type: "file_touched",
+                            phase: "editing",
+                            summary: `Updated ${file.path}`,
+                            filePath: file.path,
+                            payload: {
+                                isEntry: Boolean(file.isEntry),
+                            },
+                        });
+                    }
+                    emitAgentRunEvent(agentRun.id, {
+                        type: "preview_started",
+                        phase: "previewing",
+                        summary: "Handing the updated virtual project to the browser preview runtime.",
+                        payload: {
+                            projectId: virtualProjectDetail.id,
+                            kind: virtualProjectDetail.kind,
+                            previewMode: virtualProjectDetail.previewMode,
+                        },
+                    });
+                    emitAgentRunEvent(agentRun.id, {
+                        type: "preview_result",
+                        phase: "previewing",
+                        summary: "Virtual project is ready for browser preview.",
+                        payload: {
+                            projectId: virtualProjectDetail.id,
+                            status: virtualProjectDetail.status,
+                        },
+                    });
+                }
             }
         } catch (projectError) {
             console.error("Virtual project generation failed:", projectError);
+            virtualProjectFailure = projectError instanceof Error ? projectError.message : "Virtual project generation failed.";
+            if (agentRun) {
+                emitAgentRunEvent(agentRun.id, {
+                    type: "preview_result",
+                    phase: "previewing",
+                    summary: virtualProjectFailure,
+                    payload: {
+                        status: "error",
+                    },
+                });
+            }
         }
     }
 
     const virtualProject = virtualProjectDetail ? toVirtualProjectReference(virtualProjectDetail) : null;
     const assistantAnswerForDisplay = virtualProject ? stripCodeBlocksForVirtualProject(answer) : answer;
+    if (agentRun) {
+        emitAgentRunEvent(agentRun.id, {
+            type: "phase_changed",
+            phase: "finalizing",
+            summary: "Persisting the conversation turn and final project state.",
+        });
+    }
     const persistedTurn = await persistConversationTurn({
         conversationId: conversation.id,
         workspaceId: input.workspaceId,
@@ -590,6 +1097,7 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
             attachments: imagePayload.messageAttachments,
             agent,
             virtualProject,
+            agentRun,
         },
     });
 
@@ -605,6 +1113,23 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
             sourceMessageId: persistedTurn.assistantMessage.id,
         }).catch((projectLinkError) => {
             console.error("Failed to link virtual project to assistant message:", projectLinkError);
+        });
+    }
+
+    if (agentRun) {
+        emitAgentRunEvent(agentRun.id, {
+            type: virtualProjectFailure ? "run_failed" : "run_completed",
+            phase: "finalizing",
+            summary: virtualProjectFailure
+                ? `Agent run finished with a project error: ${virtualProjectFailure}`
+                : virtualProjectDetail
+                ? "Agent run completed with a virtual project update."
+                : "Agent run completed.",
+            payload: {
+                conversationId: conversation.id,
+                projectId: virtualProjectDetail?.id || null,
+                projectError: virtualProjectFailure,
+            },
         });
     }
 
@@ -630,5 +1155,65 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
         suggestedActions: buildSuggestedActions(taskType, Boolean(repoConnection)),
         agent,
         virtualProject,
+        agentRun,
+    };
+}
+
+export async function startOrchestrateChat(input: OrchestrateChatInput): Promise<OrchestrateChatOutput> {
+    if (input.mode !== "agent") {
+        return orchestrateChat(input);
+    }
+
+    const taskType = classifyTask(input.message, input.mode);
+    const conversation = await ensureConversation({
+        conversationId: input.conversationId,
+        workspaceId: input.workspaceId,
+        title: input.message.slice(0, 80),
+        mode: input.mode,
+    });
+
+    const agentRun = createAgentRun({
+        conversationId: conversation.id,
+        workspaceId: input.workspaceId,
+        initialPhase: "planning",
+    });
+
+    queueMicrotask(() => {
+        void orchestrateChat({
+            ...input,
+            conversationId: conversation.id,
+            capabilities: {
+                ...(input.capabilities || {}),
+                agentRunId: agentRun.id,
+            },
+        }).catch((error) => {
+            emitAgentRunEvent(agentRun.id, {
+                type: "run_failed",
+                phase: "finalizing",
+                summary: error instanceof Error ? error.message : "Agent run failed.",
+                payload: {
+                    conversationId: conversation.id,
+                },
+            });
+        });
+    });
+
+    return {
+        answer: "",
+        conversationId: conversation.id,
+        modelUsed: {
+            id: "agent-run",
+            provider: "system",
+            profile: "event-pipeline",
+            why: "Agent run started asynchronously for live streaming.",
+        },
+        taskType,
+        contextSources: [],
+        memoryWrites: [],
+        suggestedActions: ["Watch the live activity panel while the agent updates the project."],
+        agent: null,
+        virtualProject: null,
+        agentRun,
+        runStarted: true,
     };
 }

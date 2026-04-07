@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { memo, useState } from "react";
 import { Bot, ChevronDown, FolderGit2, MessageSquareText, PlusCircle, Trash2 } from "lucide-react";
 
 type WorkspaceItem = {
@@ -25,7 +25,7 @@ type Props = {
     onCreateWorkspace: () => void;
 };
 
-export default function WorkspaceSidebar({
+function WorkspaceSidebar({
     workspaces,
     conversations,
     selectedWorkspaceId,
@@ -39,7 +39,7 @@ export default function WorkspaceSidebar({
     const [isMobileExpanded, setIsMobileExpanded] = useState(false);
 
     return (
-        <aside className="mt-10 w-full min-w-0 shrink-0 rounded-[22px] border border-white/8 bg-slate-950/72 p-2.5 shadow-[0_18px_60px_rgba(2,6,23,0.42)] backdrop-blur-2xl sm:rounded-[24px] sm:p-3 lg:mt-14 lg:w-[280px] lg:rounded-[28px]">
+        <aside className="mt-10 w-full min-w-0 shrink-0 rounded-[22px] border border-white/8 bg-slate-950/72 p-2.5 shadow-[0_18px_60px_rgba(2,6,23,0.42)] backdrop-blur-xl sm:rounded-[24px] sm:p-3 lg:mt-14 lg:w-[280px] lg:rounded-[28px]">
             <div className="mb-3 flex items-center justify-between gap-3 px-1 sm:mb-4">
                 <div>
                     <p className="text-[10px] uppercase tracking-[0.35em] text-cyan-200/60">Workspace</p>
@@ -162,3 +162,77 @@ export default function WorkspaceSidebar({
         </aside>
     );
 }
+
+function areWorkspaceItemsEqual(
+    prevItems: WorkspaceItem[],
+    nextItems: WorkspaceItem[]
+) {
+    if (prevItems === nextItems) {
+        return true;
+    }
+
+    if (prevItems.length !== nextItems.length) {
+        return false;
+    }
+
+    for (let index = 0; index < prevItems.length; index += 1) {
+        const previous = prevItems[index];
+        const next = nextItems[index];
+
+        if (
+            previous === next ||
+            (previous.id === next.id && previous.name === next.name && previous.description === next.description)
+        ) {
+            continue;
+        }
+
+        return false;
+    }
+
+    return true;
+}
+
+function areConversationItemsEqual(
+    prevItems: ConversationItem[],
+    nextItems: ConversationItem[]
+) {
+    if (prevItems === nextItems) {
+        return true;
+    }
+
+    if (prevItems.length !== nextItems.length) {
+        return false;
+    }
+
+    for (let index = 0; index < prevItems.length; index += 1) {
+        const previous = prevItems[index];
+        const next = nextItems[index];
+
+        if (
+            previous === next ||
+            (previous.id === next.id && previous.title === next.title && previous.mode === next.mode)
+        ) {
+            continue;
+        }
+
+        return false;
+    }
+
+    return true;
+}
+
+function areEqual(prevProps: Props, nextProps: Props) {
+    return (
+        prevProps.selectedWorkspaceId === nextProps.selectedWorkspaceId &&
+        prevProps.selectedConversationId === nextProps.selectedConversationId &&
+        prevProps.onSelectWorkspace === nextProps.onSelectWorkspace &&
+        prevProps.onSelectConversation === nextProps.onSelectConversation &&
+        prevProps.onDeleteWorkspace === nextProps.onDeleteWorkspace &&
+        prevProps.onDeleteConversation === nextProps.onDeleteConversation &&
+        prevProps.onCreateWorkspace === nextProps.onCreateWorkspace &&
+        areWorkspaceItemsEqual(prevProps.workspaces, nextProps.workspaces) &&
+        areConversationItemsEqual(prevProps.conversations, nextProps.conversations)
+    );
+}
+
+export default memo(WorkspaceSidebar, areEqual);
