@@ -63,6 +63,8 @@ export async function aiRequest(model: AIModel, input: AIRequestInput, stream: b
         const referer = hasProtocol(vercelUrl) ? (vercelUrl as string) : vercelUrl ? `https://${vercelUrl}` : localUrl;
 
         let lastErr: AxiosError | null = null;
+        let lastStatus: number | undefined;
+        let lastMessage: string = "Unknown error";
         for (const key of availableKeys) {
             try {
                 const response = await axios.post(
@@ -94,30 +96,43 @@ export async function aiRequest(model: AIModel, input: AIRequestInput, stream: b
                 const text = response.data?.choices?.[0]?.message?.content ?? "[No response received]";
                 return { text, raw: response.data };
             } catch (error: unknown) {
-                const err = error as AxiosError<{ error?: { message?: string } }>;
-                lastErr = err;
+                const err = error as AxiosError<{ error?: { message?: string, metadata?: { raw?: string } } }>;
                 const status = err.response?.status;
-                const message = err.response?.data?.error?.message || err.message || 'Unknown error';
-                console.error("OpenRouter error for a key:", { status, message });
-                if (status === 401 || status === 403) {
+                let currentMessage = (err.response?.data as any)?.error?.message || err.message || 'Unknown error';
+                
+                // If OpenRouter returns the generic "Provider returned error", try to find the more specific one in metadata
+                const metadata = (err.response?.data as any)?.error?.metadata;
+                if (currentMessage === "Provider returned error" && metadata?.raw) {
+                    currentMessage = metadata.raw;
+                }
+                
+                console.error(`[AI_REQUEST_KEY_FAILURE] Key ending in ...${key.slice(-4)} failed for ${model.id}. Status: ${status}. Message: ${currentMessage}`);
+                
+                lastErr = err;
+                lastStatus = status;
+                lastMessage = currentMessage;
+
+                if (status === 401 || status === 403 || status === 429 || (status && status >= 500)) {
                     continue;
                 }
                 break;
             }
         }
-        const status = lastErr?.response?.status;
-        const message = (lastErr?.response?.data as { error?: { message?: string } } | undefined)?.error?.message || lastErr?.message || 'Unknown error';
-        if (status === 401 || status === 403) {
-            throw new AIRequestError(`Authorization error from OpenRouter (${status}). Please verify API key and account settings.`, {
+
+        if (lastStatus === 401 || lastStatus === 403) {
+            throw new AIRequestError(`Authorization error from OpenRouter (${lastStatus}). Please verify API key and account settings.`, {
                 provider: "openrouter",
-                status,
+                status: lastStatus,
                 retriable: false,
             });
         }
-        throw new AIRequestError(`AI Request failed (OpenRouter): ${message}`, {
+        
+        console.error(`[AI_REQUEST_FINAL_FAILURE] All keys failed for ${model.id}. Last error: ${lastMessage}`);
+        
+        throw new AIRequestError(`AI Request failed (OpenRouter): ${lastMessage}`, {
             provider: "openrouter",
-            status,
-            retriable: isRetriableStatus(status),
+            status: lastStatus,
+            retriable: isRetriableStatus(lastStatus),
         });
     }
 

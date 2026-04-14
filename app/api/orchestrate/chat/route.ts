@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json(result);
     } catch (error: unknown) {
+        console.error("[ORCHESTRATE_CHAT_ERROR]", error);
         return NextResponse.json(
             { error: getErrorMessage(error, "Failed to orchestrate chat.") },
             { status: 500 }

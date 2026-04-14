@@ -1,5 +1,6 @@
 import { AIRequestError, aiRequest } from "@/app/lib/chatUtils/aiRequest";
 import { getModel, getModelById } from "@/app/lib/chatUtils/getModel";
+import { AIModels, type AIModel } from "@/app/lib/AImodels/models";
 import { buildAgentArtifacts } from "@/app/lib/agents/patch";
 import { createAgentRun, emitAgentRunEvent, updateAgentRun } from "@/app/lib/agents/events";
 import { buildImageContextSources, linkImageAssetsToConversation } from "@/app/lib/images/service";
@@ -863,11 +864,28 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
         .filter(Boolean)
         .join("\n");
 
-    const candidateModels = isAutoSelection
-        ? profile.preferredModelIds
-              .map((candidateId) => getModelById(candidateId, selectedProvider))
-              .filter((model): model is NonNullable<typeof model> => Boolean(model))
-        : [getModel(preferredModelId === "auto" ? undefined : preferredModelId, selectedProvider)];
+    const candidateModels: AIModel[] = [];
+    
+    if (isAutoSelection) {
+        // Start with profile-preferred models
+        const preferred = profile.preferredModelIds
+            .map((id) => getModelById(id, selectedProvider))
+            .filter((m): m is AIModel => Boolean(m));
+        candidateModels.push(...preferred);
+
+        // Append all other active models as a global fallback to ensure reliability
+        const others = AIModels.filter(m => 
+            m.active && 
+            !candidateModels.some(existing => existing.id === m.id) &&
+            (selectedProvider === "all" || m.provider === selectedProvider)
+        ).sort((a, b) => a.rank - b.rank);
+        
+        candidateModels.push(...others);
+    } else {
+        // Just the specifically selected model
+        const selected = getModel(preferredModelId === "auto" ? undefined : preferredModelId, selectedProvider);
+        if (selected) candidateModels.push(selected);
+    }
 
     if (!candidateModels.length) {
         candidateModels.push(getModel(undefined, selectedProvider));
