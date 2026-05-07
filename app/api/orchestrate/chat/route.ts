@@ -116,21 +116,80 @@ export async function POST(req: NextRequest) {
                                 buffer = lines.pop() || "";
 
                                 for (const line of lines) {
-                                    if (line.startsWith("data: ")) {
-                                        const data = line.slice(6);
-                                        if (data === "[DONE]") continue;
-                                        try {
-                                            const parsed = JSON.parse(data);
-                                            const content = parsed.choices?.[0]?.delta?.content;
-                                            if (content) {
-                                                const clean = stripThinkIncremental(content);
-                                                if (!clean) continue;
+                                    const isDataLine = line.startsWith("data: ");
+                                    const payload = isDataLine ? line.slice(6) : line;
+                                    if (!payload || !payload.trim()) continue;
+                                    if (payload === "[DONE]") continue;
+
+                                    try {
+                                        const parsed = JSON.parse(payload);
+                                        // OpenAI-style: choices[0].delta.content
+                                        // Variants: choices[0].message.content, message.content, text, output_text, content
+                                        const content =
+                                            parsed?.choices?.[0]?.delta?.content ??
+                                            parsed?.choices?.[0]?.message?.content ??
+                                            parsed?.delta?.content ??
+                                            parsed?.message?.content ??
+                                            parsed?.output_text ??
+                                            parsed?.text ??
+                                            parsed?.content ??
+                                            "";
+
+                                        if (typeof content === "string" && content) {
+                                            const clean = stripThinkIncremental(content);
+                                            if (!clean) continue;
+                                            streamedAnswer += clean;
+                                            controller.enqueue(
+                                                encoder.encode(`data: ${JSON.stringify({ content: clean })}\n\n`)
+                                            );
+                                        }
+                                    } catch {
+                                        // Not JSON: treat as plain text chunk (some providers stream raw text).
+                                        const clean = stripThinkIncremental(payload);
+                                        if (!clean) continue;
+                                        streamedAnswer += clean;
+                                        controller.enqueue(
+                                            encoder.encode(`data: ${JSON.stringify({ content: clean })}\n\n`)
+                                        );
+                                    }
+                                }
+                            }
+
+                            // Some providers/gateways may end the stream without a trailing newline.
+                            // Process any remaining buffered content so we don't drop the whole answer.
+                            if (buffer && buffer.trim()) {
+                                const tailLine = buffer.replace(/\r/g, "");
+                                const isDataLine = tailLine.startsWith("data: ");
+                                const payload = isDataLine ? tailLine.slice(6) : tailLine;
+                                if (payload && payload.trim() && payload !== "[DONE]") {
+                                    try {
+                                        const parsed = JSON.parse(payload);
+                                        const content =
+                                            parsed?.choices?.[0]?.delta?.content ??
+                                            parsed?.choices?.[0]?.message?.content ??
+                                            parsed?.delta?.content ??
+                                            parsed?.message?.content ??
+                                            parsed?.output_text ??
+                                            parsed?.text ??
+                                            parsed?.content ??
+                                            "";
+                                        if (typeof content === "string" && content) {
+                                            const clean = stripThinkIncremental(content);
+                                            if (clean) {
                                                 streamedAnswer += clean;
                                                 controller.enqueue(
                                                     encoder.encode(`data: ${JSON.stringify({ content: clean })}\n\n`)
                                                 );
                                             }
-                                        } catch {}
+                                        }
+                                    } catch {
+                                        const clean = stripThinkIncremental(payload);
+                                        if (clean) {
+                                            streamedAnswer += clean;
+                                            controller.enqueue(
+                                                encoder.encode(`data: ${JSON.stringify({ content: clean })}\n\n`)
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -160,7 +219,7 @@ export async function POST(req: NextRequest) {
                             });
 
                             const finalData = {
-                                answer: streamedAnswer || result.answer || "",
+                                answer: streamedAnswer || result.answer || "[No response received]",
                                 conversationId: result.conversationId,
                                 modelUsed: result.modelUsed,
                                 taskType: result.taskType,
