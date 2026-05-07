@@ -1,5 +1,6 @@
 import { AIModel } from "../AImodels/models";
 import axios, { AxiosError } from "axios";
+import { Readable } from "stream";
 
 interface AIResponse {
     text: string;
@@ -91,7 +92,9 @@ export async function aiRequest(model: AIModel, input: AIRequestInput, stream: b
                     }
                 );
                 if (stream) {
-                    return response.data;
+                    // axios returns a Node.js Readable stream; Next route handlers expect a Web ReadableStream.
+                    // Convert so callers can use `.getReader()` and pipe it through SSE utilities.
+                    return Readable.toWeb(response.data as unknown as Readable) as ReadableStream<Uint8Array>;
                 }
                 const text = response.data?.choices?.[0]?.message?.content ?? "[No response received]";
                 return { text, raw: response.data };
@@ -164,7 +167,8 @@ export async function aiRequest(model: AIModel, input: AIRequestInput, stream: b
             );
 
             if (stream) {
-                return response.data;
+                // axios returns a Node.js Readable stream; convert to Web ReadableStream for Next/edge consumers.
+                return Readable.toWeb(response.data as unknown as Readable) as ReadableStream<Uint8Array>;
             }
 
             const rawContent = response.data?.choices?.[0]?.message?.content;

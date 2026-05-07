@@ -1152,7 +1152,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         await runVirtualProjectPreview(activeProject);
     }, [activeProject, runVirtualProjectPreview]);
 
-    const sendMessage = async () => {
+const sendMessage = async () => {
         const outgoingMessage = input.trim();
         if (!outgoingMessage) return;
 
@@ -1197,6 +1197,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         setError(null);
         setInput("");
         setMessages((current) => [
+
             ...current,
             {
                 id: tempUserId,
@@ -1217,6 +1218,145 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         const previousProjectId = activeProject?.id || null;
 
         try {
+            const enableStreaming = true;
+
+            if (enableStreaming) {
+                const res = await fetch("/api/orchestrate/chat", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        message: outgoingMessage,
+                        mode,
+                        selectedModel,
+                        selectedProvider,
+                        workspaceId: selectedWorkspaceId,
+                        conversationId: selectedConversationId,
+                        attachments: outgoingAttachments,
+                        capabilities: {
+                            allowMemory: true,
+                            allowRepo: true,
+                            allowNotes: true,
+                            executionMode,
+                        },
+                        stream: true,
+                    }),
+                });
+
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}));
+                    throw new Error(errorData.error || "Failed to orchestrate response.");
+                }
+
+                const reader = res.body?.getReader();
+                const decoder = new TextDecoder();
+                let streamedContent = "";
+                let fullResponse: OrchestrateChatOutput | null = null;
+
+                if (!reader) {
+                    throw new Error("Response body is not readable.");
+                }
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split("\n");
+
+                    for (const line of lines) {
+                        if (!line.startsWith("data: ")) continue;
+                        const dataStr = line.slice(6);
+
+                        if (dataStr === "[DONE]") {
+                            continue;
+                        }
+
+                        try {
+                            const parsed = JSON.parse(dataStr);
+                            if (parsed.content) {
+                                streamedContent += parsed.content;
+                                setMessages((current) =>
+                                    current.map((msg) =>
+                                        msg.id === tempAssistantId
+                                            ? { ...msg, content: streamedContent }
+                                            : msg
+                                    )
+                                );
+                            }
+                            if (parsed.answer !== undefined || parsed.modelUsed) {
+                                fullResponse = parsed as OrchestrateChatOutput;
+                            }
+                        } catch {
+                            if (dataStr.trim()) {
+                                streamedContent += dataStr;
+                                setMessages((current) =>
+                                    current.map((msg) =>
+                                        msg.id === tempAssistantId
+                                            ? { ...msg, content: streamedContent }
+                                            : msg
+                                    )
+                                );
+                            }
+                        }
+                    }
+                }
+
+                setLoading(false);
+
+                if (fullResponse) {
+                    setResult(fullResponse);
+                    setStatusMessage(`Using ${fullResponse.modelUsed.id} on ${fullResponse.modelUsed.provider} via ${fullResponse.modelUsed.profile}.`);
+                    clearImageAttachments();
+
+                    const agentRunStarted = mode === "agent" && Boolean((fullResponse as OrchestrateChatOutput & { runStarted?: boolean }).runStarted && fullResponse.agentRun?.id);
+
+                    if (agentRunStarted && fullResponse.agentRun) {
+                        const agentRun = fullResponse.agentRun;
+                        completedAgentRunRefreshRef.current = null;
+                        startTransition(() => {
+                            setActiveAgentRun({
+                                ...agentRun,
+                                conversationId: fullResponse.conversationId,
+                                workspaceId: selectedWorkspaceId ?? null,
+                                projectId: fullResponse.virtualProject?.id ?? null,
+                                events: [],
+                            });
+                        });
+                        if (fullResponse.conversationId !== selectedConversationId) {
+                            pendingConversationLoadRef.current = fullResponse.conversationId;
+                            setSelectedConversationId(fullResponse.conversationId);
+                        }
+                        setStatusMessage(`Agent run ${fullResponse.agentRun.id} is running and streaming live updates.`);
+                        return;
+                    }
+
+                    await loadWorkspaceState();
+                    if (fullResponse.agentRun?.id) {
+                        await loadAgentRun(fullResponse.agentRun.id).catch(() => undefined);
+                    }
+
+                    if (fullResponse.conversationId !== selectedConversationId) {
+                        setSelectedConversationId(fullResponse.conversationId);
+                    } else {
+                        await loadConversationThread(fullResponse.conversationId);
+                        if (fullResponse.virtualProject?.id) {
+                            const refreshedProject = await loadVirtualProject(fullResponse.virtualProject.id, "overview");
+                            if (refreshedProject && previousProjectId === refreshedProject.id) {
+                                setStatusMessage("Updated the current virtual project in place and reran its preview.");
+                                await runVirtualProjectPreview(refreshedProject);
+                            }
+                        }
+                    }
+                }
+
+                setMessages((current) =>
+                    current.map((msg) =>
+                        msg.id === tempAssistantId ? { ...msg, pending: false } : msg
+                    )
+                );
+                return;
+            }
+
             const res = await fetch("/api/orchestrate/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },

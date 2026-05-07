@@ -29,24 +29,29 @@ export async function sendMessage({input, setInput, setLoading, setResponse, mod
                     let accumulatedResponse = '';
 
                     eventSource.onmessage = (event) => {
+                        const rawData = event.data;
+                        if (rawData === '[DONE]') {
+                            eventSource.close();
+                            resolve(accumulatedResponse);
+                            return;
+                        }
                         try {
-                            const data = JSON.parse(event.data);
+                            const data = JSON.parse(rawData);
                             if (data.content) {
                                 accumulatedResponse += data.content;
                                 setResponse(accumulatedResponse);
                             }
-                        } catch (e) {}
+                        } catch (e) {
+                            console.warn('Failed to parse SSE message:', rawData);
+                        }
                     };
 
                     eventSource.onerror = (err) => {
                         eventSource.close();
-                        reject(new Error("Streaming failed"));
+                        const errorMsg = "❌ Eroare la streaming. Încearcă din nou.";
+                        setResponse(errorMsg);
+                        reject(new Error(errorMsg));
                     };
-
-                    eventSource.addEventListener('done', () => {
-                        eventSource.close();
-                        resolve(accumulatedResponse);
-                    });
                 });
             } else {
                 const res = await fetch("/api/ai", {

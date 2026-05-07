@@ -104,6 +104,9 @@ function buildSuggestedActions(taskType: string, hasRepo: boolean) {
 
 function sanitizeAssistantAnswer(answer: string) {
     return answer
+        // Some providers/models emit reasoning in <think>...</think> blocks (or similar).
+        // Never surface that to the user UI.
+        .replace(/<think>[\s\S]*?<\/think>/gi, "")
         .replace(/<minimax:tool_call>[\s\S]*?<\/minimax:tool_call>/gi, "")
         .replace(/<invoke\b[\s\S]*?<\/invoke>/gi, "")
         .replace(/<\/?parameter\b[^>]*>/gi, "")
@@ -911,7 +914,7 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
                     systemPrompt,
                     temperature: profile.temperature,
                 },
-                false
+                input.stream ?? false
             );
             model = candidateModel;
             break;
@@ -933,6 +936,34 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
 
     if (!response) {
         throw (lastError instanceof Error ? lastError : new Error("All auto model attempts failed."));
+    }
+
+    const isStream = typeof response !== "string" && "getReader" in response;
+
+    if (input.stream && isStream) {
+        return {
+            answer: "",
+            conversationId: conversation.id,
+            modelUsed: {
+                id: model.id,
+                provider: model.provider,
+                profile: profile.id,
+                why: profile.why,
+            },
+            taskType,
+            contextSources: selectedSources.map((source) => ({
+                type: source.type,
+                label: source.label,
+                score: source.score,
+            })),
+            memoryWrites: [],
+            suggestedActions: buildSuggestedActions(taskType, Boolean(repoConnection)),
+            agent: null,
+            virtualProject: null,
+            agentRun,
+            runStarted: true,
+            stream: response as ReadableStream<Uint8Array>,
+        } as OrchestrateChatOutput & { stream?: ReadableStream<Uint8Array> };
     }
 
     const answer = sanitizeAssistantAnswer("text" in response ? response.text : "");

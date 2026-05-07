@@ -231,6 +231,7 @@ export type OrchestrateChatInput = {
     conversationId?: string | null;
     attachments?: ImageAttachmentInput[];
     capabilities?: OrchestratorCapabilities;
+    stream?: boolean;
 };
 
 export type OrchestrateChatOutput = {
