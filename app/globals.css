@@ -87,3 +87,15 @@ body {
   background: rgba(125, 211, 252, 0.22);
   color: #f8fbff;
 }
+
+@keyframes dotPulse {
+  0%, 20% { opacity: 0; }
+  40% { opacity: 1; }
+  60% { opacity: 1; }
+  80%, 100% { opacity: 0; }
+}
+
+@keyframes textPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}

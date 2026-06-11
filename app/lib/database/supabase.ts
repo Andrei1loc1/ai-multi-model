@@ -165,6 +165,20 @@ export type ImageAttachmentRecord = {
     updated_at: string;
 };
 
+export type DocumentAssetRecord = {
+    id: string;
+    workspace_id: string | null;
+    conversation_id: string | null;
+    file_name: string;
+    mime_type: string;
+    storage_path: string;
+    file_size_bytes: number;
+    sha256: string;
+    extracted_text: string | null;
+    created_at: string;
+    expires_at: string;
+};
+
 export type ImageAnalysisCacheRecord = {
     id: string;
     image_asset_id: string;

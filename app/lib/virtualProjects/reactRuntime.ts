@@ -3,8 +3,32 @@ import { validateVirtualProjectPayload } from "@/app/lib/virtualProjects/validat
 import type { VirtualProjectPayload } from "@/app/lib/workspaces/types";
 
 const REACT_VERSION = "19.2.4";
-const REACT_CDN = `https://esm.sh/react@${REACT_VERSION}?dev`;
-const REACT_DOM_CLIENT_CDN = `https://esm.sh/react-dom@${REACT_VERSION}/client?dev`;
+
+// CDN pentru pachete externe - toate se încarcă via esm.sh
+function esmCdn(specifier: string, version?: string) {
+    const url = version ? `https://esm.sh/${specifier}@${version}?dev` : `https://esm.sh/${specifier}?dev`;
+    return url;
+}
+
+const EXTERNAL_ALLOWLIST: Record<string, string> = {
+    "react": esmCdn("react", REACT_VERSION),
+    "react-dom": esmCdn("react-dom", REACT_VERSION),
+    "react-dom/client": esmCdn("react-dom/client", REACT_VERSION),
+    "react/jsx-runtime": esmCdn("react/jsx-runtime", REACT_VERSION),
+    "react/jsx-dev-runtime": esmCdn("react/jsx-dev-runtime", REACT_VERSION),
+    "framer-motion": esmCdn("framer-motion"),
+    "lucide-react": esmCdn("lucide-react"),
+    "tailwindcss": esmCdn("tailwindcss"),
+    "clsx": esmCdn("clsx"),
+    "tailwind-merge": esmCdn("tailwind-merge"),
+    "zustand": esmCdn("zustand"),
+    "axios": esmCdn("axios"),
+    "date-fns": esmCdn("date-fns"),
+    "lodash": esmCdn("lodash-es"),
+    "uuid": esmCdn("uuid"),
+    "recharts": esmCdn("recharts"),
+    "@tanstack/react-query": esmCdn("@tanstack/react-query"),
+};
 
 export type ReactPreviewBuildInput = Pick<VirtualProjectPayload, "entryFile" | "files"> & {
     title?: string;
@@ -147,6 +171,24 @@ function buildInlineBootstrap(params: {
       const reactNamespace = ReactModule;
       const reactDomNamespace = ReactDOMClientModule;
 
+      const externalModuleMap = new Map();
+
+      async function loadExternalModule(specifier) {
+        if (externalModuleMap.has(specifier)) {
+          return externalModuleMap.get(specifier);
+        }
+
+        const cdnUrl = EXTERNAL_ALLOWLIST[specifier];
+        if (!cdnUrl) {
+          throw new Error('Unsupported external import: ' + specifier);
+        }
+
+        const module = await import(cdnUrl);
+        const wrapped = Object.freeze({ ...module, default: module.default || module });
+        externalModuleMap.set(specifier, wrapped);
+        return wrapped;
+      }
+
       function createStorage(bucket) {
         return {
           getItem(key) {
@@ -263,15 +305,18 @@ function buildInlineBootstrap(params: {
       }
 
       function resolveRequire(fromPath, specifier) {
-        if (specifier === 'react' || specifier === 'react-dom' || specifier === 'react-dom/client') {
-          return externalRequire(specifier);
-        }
+        const reactExternal = externalRequire(specifier);
+        if (reactExternal) return reactExternal;
 
         if (specifier.startsWith('.') || specifier.startsWith('/')) {
           return loadModule(resolveCandidate(fromPath, specifier));
         }
 
-        throw new Error(\`Only react, react-dom, and react-dom/client are allowed as package imports. Found: \${specifier}\`);
+        if (EXTERNAL_ALLOWLIST[specifier]) {
+          return loadExternalModule(specifier);
+        }
+
+        throw new Error('Unsupported import: ' + specifier + ' from ' + fromPath);
       }
 
       function loadCss(path) {
@@ -291,14 +336,14 @@ function buildInlineBootstrap(params: {
         return JSON.parse(moduleSources[path]);
       }
 
-      function loadModule(path) {
+      async function loadModule(path) {
         const normalizedPath = normalizePath(path);
         if (moduleCache.has(normalizedPath)) {
           return moduleCache.get(normalizedPath);
         }
 
         if (!Object.prototype.hasOwnProperty.call(moduleSources, normalizedPath)) {
-          throw new Error(\`Unknown virtual module: \${normalizedPath}\`);
+          throw new Error('Unknown virtual module: ' + normalizedPath);
         }
 
         if (normalizedPath.endsWith('.css')) {
@@ -311,6 +356,18 @@ function buildInlineBootstrap(params: {
           const jsonExports = loadJson(normalizedPath);
           moduleCache.set(normalizedPath, jsonExports);
           return jsonExports;
+        }
+
+        // Pre-load external dependencies to avoid async issues during sync eval
+        const code = moduleSources[normalizedPath];
+        const importRegex = /import\s+(?:.*?from\s+)?['"]([^'"]+)['"]/g;
+        const requireRegex = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+        const matches = [...code.matchAll(importRegex), ...code.matchAll(requireRegex)];
+        for (const match of matches) {
+          const specifier = match[1];
+          if (EXTERNAL_ALLOWLIST[specifier] && !externalModuleMap.has(specifier)) {
+            await loadExternalModule(specifier);
+          }
         }
 
         const module = { exports: {} };
@@ -368,7 +425,7 @@ function buildInlineBootstrap(params: {
       });
 
       try {
-        const entryModule = loadModule(entryFile);
+        const entryModule = await loadModule(entryFile);
         const entryComponent = entryModule && entryModule.default ? entryModule.default : entryModule.App || entryModule;
         const appRoot = document.getElementById(rootId);
 

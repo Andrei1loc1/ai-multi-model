@@ -19,6 +19,8 @@ export type TaskType =
     | "search"
     | "plan";
 
+export type SoulType = "default" | "concise" | "tutor" | "challenger" | "creative";
+
 export type AgentArtifact = {
     understanding: string;
     files_used: string[];
@@ -110,6 +112,12 @@ export type ContextSource =
           label: string;
           content: string;
           score: number;
+      }
+    | {
+          type: "document";
+          label: string;
+          content: string;
+          score: number;
       };
 
 export type ImageAttachmentInput = {
@@ -119,6 +127,13 @@ export type ImageAttachmentInput = {
     mimeType?: string | null;
     width?: number | null;
     height?: number | null;
+};
+
+export type DocumentAttachmentInput = {
+    type: "document";
+    documentAssetId: string;
+    name?: string | null;
+    mimeType?: string | null;
 };
 
 export type ImageVisionBundle = {
@@ -146,6 +161,15 @@ export type MessageAttachmentMetadata = {
     width?: number | null;
     height?: number | null;
     previewUrl?: string | null;
+    storagePath?: string | null;
+};
+
+export type MessageDocumentAttachmentMetadata = {
+    type: "document";
+    documentAssetId: string;
+    name?: string | null;
+    mimeType?: string | null;
+    extractedTextLength?: number | null;
     storagePath?: string | null;
 };
 
@@ -225,11 +249,12 @@ export type OrchestratorCapabilities = {
 export type OrchestrateChatInput = {
     message: string;
     mode: WorkspaceMode;
+    soul?: SoulType;
     selectedModel?: string | null;
-    selectedProvider?: "all" | "openrouter" | "nvidia-direct" | null;
+    selectedProvider?: "all" | "openrouter" | "nvidia-direct" | "ollama" | null;
     workspaceId?: string | null;
     conversationId?: string | null;
-    attachments?: ImageAttachmentInput[];
+    attachments?: Array<ImageAttachmentInput | DocumentAttachmentInput>;
     capabilities?: OrchestratorCapabilities;
     stream?: boolean;
 };

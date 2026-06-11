@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import Navbar from "@/app/components/Navigation/Navbar";
 import PWARegistrar from "@/app/components/PWA/PWARegistrar";
 
 export const metadata: Metadata = {
@@ -35,7 +34,6 @@ export default function RootLayout({
         <html lang="en">
         <body className="bg-gray-100 min-h-screen">
         <PWARegistrar />
-        <Navbar />
         {children}
         </body>
         </html>

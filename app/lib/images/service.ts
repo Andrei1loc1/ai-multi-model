@@ -1,5 +1,6 @@
 import axios from "axios";
 import crypto from "crypto";
+import sharp from "sharp";
 import { getSupabaseServerClient } from "@/app/lib/database/supabase";
 import type {
     ImageAnalysisCacheRecord,
@@ -14,12 +15,11 @@ import type {
 } from "@/app/lib/workspaces/types";
 
 const IMAGE_BUCKET = "chat-attachments";
-const BUNDLE_VERSION = "vision-bundle-v1";
+const BUNDLE_VERSION = "vision-bundle-v2";
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
-const DEFAULT_OPENROUTER_VISION_MODELS = ["openrouter/free", "qwen/qwen3.6-plus:free"];
-const DEFAULT_NVIDIA_VISION_MODEL = "meta/llama-3.2-11b-vision-instruct";
+const DEFAULT_OLLAMA_VISION_MODEL = "llava";
 
-type VisionProvider = "openrouter" | "nvidia-direct";
+type VisionProvider = "openrouter" | "nvidia-direct" | "ollama";
 type VisionCandidate = {
     provider: VisionProvider;
     model: string;
@@ -293,63 +293,22 @@ function formatVisionBundle(bundle: ImageVisionBundle) {
 }
 
 function getVisionCandidates(preferredProvider: "all" | VisionProvider = "all") {
-    const openRouterKey = [
-        process.env.OPENROUTER_API_KEY_1,
-        process.env.OPENROUTER_API_KEY_2,
-        process.env.OPENROUTER_API_KEY_3,
-    ].find((key) => typeof key === "string" && key.trim().length > 0);
+    const ollamaKey = process.env.OLLAMA_API_KEY;
+    const ollamaModel = process.env.OLLAMA_VISION_MODEL?.trim() || DEFAULT_OLLAMA_VISION_MODEL;
+    const ollamaEndpoint = process.env.OLLAMA_VISION_ENDPOINT || "https://ollama.com/api/chat";
 
-    const providerBuckets: Record<VisionProvider, VisionCandidate[]> = {
-        openrouter: [],
-        "nvidia-direct": [],
-    };
-
-    if (openRouterKey) {
-        const configuredModel = process.env.OPENROUTER_VISION_MODEL?.trim();
-        const models = configuredModel ? [configuredModel] : DEFAULT_OPENROUTER_VISION_MODELS;
-
-        providerBuckets.openrouter.push(
-            ...models.map((model) => ({
-                provider: "openrouter" as const,
-                model,
-                endpoint: "https://openrouter.ai/api/v1/chat/completions",
-                apiKey: openRouterKey,
-            }))
-        );
+    if (!ollamaKey) {
+        return [];
     }
 
-    if (process.env.NVIDIA_API_KEY) {
-        providerBuckets["nvidia-direct"].push({
-            provider: "nvidia-direct",
-            model: process.env.NVIDIA_VISION_MODEL?.trim() || DEFAULT_NVIDIA_VISION_MODEL,
-            endpoint: "https://integrate.api.nvidia.com/v1/chat/completions",
-            apiKey: process.env.NVIDIA_API_KEY,
-        });
-    }
-
-    const providerOrder: VisionProvider[] =
-        preferredProvider === "nvidia-direct"
-            ? ["nvidia-direct", "openrouter"]
-            : preferredProvider === "openrouter"
-            ? ["openrouter", "nvidia-direct"]
-            : ["openrouter", "nvidia-direct"];
-
-    const seen = new Set<string>();
-    const candidates: VisionCandidate[] = [];
-
-    for (const provider of providerOrder) {
-        for (const candidate of providerBuckets[provider]) {
-            const dedupeKey = `${candidate.provider}:${candidate.model}`;
-            if (seen.has(dedupeKey)) {
-                continue;
-            }
-
-            seen.add(dedupeKey);
-            candidates.push(candidate);
-        }
-    }
-
-    return candidates;
+    return [
+        {
+            provider: "ollama" as const,
+            model: ollamaModel,
+            endpoint: ollamaEndpoint,
+            apiKey: ollamaKey,
+        },
+    ];
 }
 
 function extractProviderErrorMessage(error: unknown) {
@@ -396,7 +355,7 @@ function buildVisionError(candidate: VisionCandidate, error: unknown) {
     }
 
     const status = error.response?.status;
-    const providerLabel = candidate.provider === "openrouter" ? "OpenRouter" : "NVIDIA Direct";
+    const providerLabel = "Ollama";
     const details = extractProviderErrorMessage(error);
 
     if (status === 402) {
@@ -423,23 +382,39 @@ function buildVisionError(candidate: VisionCandidate, error: unknown) {
 async function requestVisionBundle(
     imageUrl: string,
     userMessage: string,
-    preferredProvider: "all" | VisionProvider = "all"
+    preferredProvider: "all" | VisionProvider = "all",
+    imageMimeType?: string
 ) {
     const candidates = getVisionCandidates(preferredProvider);
     if (!candidates.length) {
-        throw new Error("No vision-capable provider is configured. Add OPENROUTER_API_KEY_1 or NVIDIA_API_KEY.");
+        throw new Error("No vision provider configured. Set OLLAMA_API_KEY.");
     }
 
     const systemPrompt =
-        "You are a vision preprocessing service for another language model. Return only strict JSON with keys: summary, ocr_text, elements, document_structure, important_details, uncertainties, confidence. Do not wrap the JSON in commentary.";
+        "You are an expert visual analyst. Analyze the image thoroughly. Return strict JSON with keys: summary (brief description of what the image shows), ocr_text (any visible text, verbatim), elements (list of objects, people, structures identified), document_structure (if it's a document, describe layout), important_details (specific names, numbers, labels), uncertainties (what you're not sure about), confidence (0-1). Do not wrap the JSON in commentary or markdown fences.";
     const userPrompt = [
-        "Analyze this image for downstream use by another AI model.",
-        "Focus on visible text, layout, UI structure, document sections, and key visual facts.",
-        "Do not invent unreadable details.",
-        `User intent: ${userMessage}`,
+        "Analyze this image in detail.",
+        "If it's a photo or scene, identify objects, people, locations, and context.",
+        "If it's a a document, extract text and describe the structure.",
+        "If it's a diagram or chart, describe the relationships and data.",
+        `User context: ${userMessage}`,
     ].join("\n");
 
     let lastError: Error | null = null;
+
+    let imageBase64: string | null = null;
+    try {
+        const imgResponse = await axios.get(imageUrl, { responseType: "arraybuffer", timeout: 30_000 });
+        const inputBuffer = Buffer.from(imgResponse.data);
+        const pngBuffer = await sharp(inputBuffer).png().toBuffer();
+        imageBase64 = pngBuffer.toString("base64");
+    } catch (downloadErr) {
+        console.error("Failed to download image for vision analysis:", downloadErr);
+    }
+
+    if (!imageBase64) {
+        throw new Error("Failed to download image for vision analysis.");
+    }
 
     for (const candidate of candidates) {
         try {
@@ -451,23 +426,32 @@ async function requestVisionBundle(
                         { role: "system", content: systemPrompt },
                         {
                             role: "user",
-                            content: [
-                                { type: "text", text: userPrompt },
-                                { type: "image_url", image_url: { url: imageUrl } },
-                            ],
+                            content: userPrompt,
+                            images: [imageBase64],
                         },
                     ],
-                    temperature: 0.1,
+                    stream: false,
                 },
                 {
                     headers: {
                         "Content-Type": "application/json",
                         Authorization: `Bearer ${candidate.apiKey}`,
                     },
+                    timeout: 120_000,
                 }
             );
 
-            const text = response.data?.choices?.[0]?.message?.content;
+            let text = "";
+            if (response.data?.message?.content) {
+                text = response.data.message.content;
+            } else if (response.data?.choices?.[0]?.message?.content) {
+                text = response.data.choices[0].message.content;
+            } else if (response.data?.response) {
+                text = response.data.response;
+            } else if (typeof response.data === "string") {
+                text = response.data;
+            }
+
             const normalizedText =
                 typeof text === "string"
                     ? text
@@ -614,7 +598,7 @@ export async function analyzeImageAsset(
     }
 
     try {
-        const visionResult = await requestVisionBundle(imageAsset.public_url, userMessage, preferredProvider);
+        const visionResult = await requestVisionBundle(imageAsset.public_url, userMessage, preferredProvider, imageAsset.mime_type);
         const bundleRow = {
             id: crypto.randomUUID(),
             image_asset_id: imageAsset.id,

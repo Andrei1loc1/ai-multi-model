@@ -6,6 +6,7 @@ const providerLabel: Record<ProviderFilter, string> = {
     all: "Best overall",
     openrouter: "OpenRouter only",
     "nvidia-direct": "NVIDIA Direct only",
+    ollama: "Ollama only",
 };
 
 const ModelSelector = ({
@@ -52,7 +53,7 @@ const ModelSelector = ({
                         >
                             <div className="truncate">{model.label}</div>
                             <div className="mt-1 text-[11px] uppercase tracking-[0.22em] text-slate-500">
-                                {model.provider === "nvidia-direct" ? "NVIDIA Direct" : "OpenRouter"}
+                                {model.provider === "ollama" ? "Ollama" : model.provider === "nvidia-direct" ? "NVIDIA Direct" : "OpenRouter"}
                             </div>
                         </li>
                     ))}

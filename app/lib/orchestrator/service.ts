@@ -4,8 +4,9 @@ import { AIModels, type AIModel } from "@/app/lib/AImodels/models";
 import { buildAgentArtifacts } from "@/app/lib/agents/patch";
 import { createAgentRun, emitAgentRunEvent, updateAgentRun } from "@/app/lib/agents/events";
 import { buildImageContextSources, linkImageAssetsToConversation } from "@/app/lib/images/service";
+import { buildDocumentContextSources, linkDocumentAssetsToConversation } from "@/app/lib/documents/service";
 import { markMemoryAsUsed, maybeRefreshConversationSummary, persistConversationTurn } from "@/app/lib/memory/service";
-import { getProfileForTask } from "@/app/lib/orchestrator/modelProfiles";
+import { getProfileForTask, souls } from "@/app/lib/orchestrator/modelProfiles";
 import { classifyTask } from "@/app/lib/orchestrator/taskClassifier";
 import { analyzeVirtualProject } from "@/app/lib/virtualProjects/analyzer";
 import { validateVirtualProjectPayload } from "@/app/lib/virtualProjects/validate";
@@ -136,14 +137,23 @@ function stripCodeBlocksForVirtualProject(answer: string) {
     return `${withoutCodeBlocks}\n\n${note}`.trim();
 }
 
+const VIRTUAL_PROJECT_INTENT_TERMS = [
+    "build", "create", "make", "generate", "develop", "implement",
+    "fa o aplicatie", "fa-mi o aplicatie", "fa un site", "fa un app",
+    "creaza o aplicatie", "creaza un site", "build an app", "build a website",
+    "build a dashboard", "create a landing page", "create react app",
+    "new react project", "python script", "scrie un script python",
+    "mini-app", "mini app", "micro app",
+];
+
 function shouldGenerateVirtualProject(message: string, mode: OrchestrateChatInput["mode"]) {
     if (mode !== "agent") {
         return false;
     }
 
-    return /(mini app|mini-app|mini aplicat|aplicatie|application|landing page|dashboard|react app|react project|python script|script python|automatizare|automation)/i.test(
-        message
-    );
+    const lower = message.toLowerCase();
+    // Cere explicit BUILD/CREATE - nu se activează la simple mențiuni de "aplicatie"
+    return VIRTUAL_PROJECT_INTENT_TERMS.some((term) => lower.includes(term));
 }
 
 function inferVirtualProjectKind(message: string): VirtualProjectPayload["kind"] {
@@ -752,15 +762,27 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
     }
 
     if (input.attachments?.length) {
-        await linkImageAssetsToConversation(
-            input.attachments.map((attachment) => attachment.imageAssetId),
-            conversation.id,
-            input.workspaceId
-        );
+        const imageAttachments = input.attachments.filter((a): a is Extract<typeof a, { type: "image" }> => a.type === "image");
+        const documentAttachments = input.attachments.filter((a): a is Extract<typeof a, { type: "document" }> => a.type === "document");
+        if (imageAttachments.length) {
+            await linkImageAssetsToConversation(
+                imageAttachments.map((attachment) => attachment.imageAssetId),
+                conversation.id,
+                input.workspaceId
+            );
+        }
+        if (documentAttachments.length) {
+            await linkDocumentAssetsToConversation(
+                documentAttachments.map((attachment) => attachment.documentAssetId),
+                conversation.id,
+                input.workspaceId
+            );
+        }
     }
 
     const repoConnection = input.workspaceId ? await getWorkspaceRepoConnection(input.workspaceId) : null;
-    const [recentMessages, memoryEntries, repoContext, noteContext, imagePayload, existingVirtualProject] = await Promise.all([
+    const documentAttachments = input.attachments?.filter((a): a is Extract<typeof a, { type: "document" }> => a.type === "document") || [];
+    const [recentMessages, memoryEntries, repoContext, noteContext, imagePayload, documentPayload, existingVirtualProject] = await Promise.all([
         getConversationMessages(conversation.id, 8),
         input.capabilities?.allowMemory === false
             ? Promise.resolve([])
@@ -776,7 +798,10 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
             : searchWorkspaceContext(input.workspaceId, input.message, taskType === "coding" ? 10 : 6),
         input.capabilities?.allowNotes === false || imageFocusedRequest ? Promise.resolve([]) : getRelevantNotes(input.message),
         input.attachments?.length
-            ? buildImageContextSources(input.attachments, input.message, selectedProvider)
+            ? buildImageContextSources(input.attachments.filter((a): a is Extract<typeof a, { type: "image" }> => a.type === "image"), input.message, selectedProvider)
+            : Promise.resolve({ contextSources: [], messageAttachments: [] }),
+        documentAttachments.length
+            ? buildDocumentContextSources(documentAttachments, input.message)
             : Promise.resolve({ contextSources: [], messageAttachments: [] }),
         input.mode === "agent"
             ? getLatestConversationVirtualProject(conversation.id).catch(() => null)
@@ -800,6 +825,7 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
             score: chunk.score,
         })),
         ...imagePayload.contextSources,
+        ...documentPayload.contextSources,
         ...noteContext,
     ].sort((a, b) => b.score - a.score);
 
@@ -825,13 +851,28 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
     }
 
     const systemPrompt = [
-        profile.promptPrefix,
+        souls[input.soul || "default"].promptPrefix,
         input.mode === "agent"
-            ? "You are operating in Agent mode. Use repository evidence before making claims. Return practical next steps."
+            ? `You are operating in Agent mode. You build real, functional applications. Follow these rules strictly:
+1. Generate COMPLETE, MULTI-FILE projects - not single-file demos
+2. Use external packages freely via import statements (esm.sh handles them automatically)
+3. Use Tailwind CSS utility classes for all styling - never use inline styles
+4. Structure code professionally: separate components, hooks, utilities into different files
+5. Include proper error handling and TypeScript types
+6. Export a default component from the entry file that renders the full app
+7. When updating an existing project, modify only what needs changing, preserve the rest`
             : "You are operating in Chat mode. Prioritize clarity and usefulness.",
         "You do not have access to tools or a filesystem at runtime. Never emit tool-call markup, XML invocations, or pseudo-tool syntax.",
         taskType === "coding"
-            ? "When coding, include understanding, files used, proposed changes, risks, and next step."
+            ? `When building applications, return a structured response with:
+- understanding: brief summary of what you're building
+- files_used: list of files that will be created/modified
+- proposed_changes: array of change descriptions
+- patch_or_code: the actual code, organized in markdown code blocks per file
+- risks: potential issues or limitations
+- next_step: what the user can do next (run, modify, etc.)
+
+Use markdown headers (##) for each section. Include file paths in code block headers like \`\`\`tsx:src/App.tsx\`\`\`.`
             : "When answering, stay structured and concise unless the question needs depth.",
         imagePayload.contextSources.length
             ? "One or more image attachments were pre-analyzed for you. Use the provided image context as trusted visual evidence."
@@ -861,6 +902,8 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
         composeContextBlock("Repository context:", selectedSources.filter((source) => source.type === "repo_chunk")),
         "",
         composeContextBlock("Image context:", selectedSources.filter((source) => source.type === "image")),
+        "",
+        composeContextBlock("Document context:", selectedSources.filter((source) => source.type === "document")),
         "",
         composeContextBlock("Useful notes:", selectedSources.filter((source) => source.type === "note")),
     ]
@@ -1119,14 +1162,18 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
             summary: "Persisting the conversation turn and final project state.",
         });
     }
+    const allMessageAttachments = [
+        ...imagePayload.messageAttachments,
+        ...documentPayload.messageAttachments,
+    ];
     const persistedTurn = await persistConversationTurn({
         conversationId: conversation.id,
         workspaceId: input.workspaceId,
         repoConnectionId: repoConnection?.id || null,
         userMessage: input.message,
-        userMetadata: imagePayload.messageAttachments.length
+        userMetadata: allMessageAttachments.length
             ? {
-                  attachments: imagePayload.messageAttachments,
+                  attachments: allMessageAttachments,
               }
             : null,
         assistantAnswer: assistantAnswerForDisplay,
@@ -1143,7 +1190,7 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
                 why: profile.why,
             },
             taskType,
-            attachments: imagePayload.messageAttachments,
+            attachments: allMessageAttachments,
             agent,
             virtualProject,
             agentRun,
@@ -1227,42 +1274,56 @@ export async function startOrchestrateChat(input: OrchestrateChatInput): Promise
         initialPhase: "planning",
     });
 
-    queueMicrotask(() => {
-        void orchestrateChat({
+    // Rulează sincron, nu în background - returnează rezultatul complet
+    try {
+        const result = await orchestrateChat({
             ...input,
             conversationId: conversation.id,
             capabilities: {
                 ...(input.capabilities || {}),
                 agentRunId: agentRun.id,
             },
-        }).catch((error) => {
-            emitAgentRunEvent(agentRun.id, {
-                type: "run_failed",
-                phase: "finalizing",
-                summary: error instanceof Error ? error.message : "Agent run failed.",
-                payload: {
-                    conversationId: conversation.id,
-                },
-            });
         });
-    });
 
-    return {
-        answer: "",
-        conversationId: conversation.id,
-        modelUsed: {
-            id: "agent-run",
-            provider: "system",
-            profile: "event-pipeline",
-            why: "Agent run started asynchronously for live streaming.",
-        },
-        taskType,
-        contextSources: [],
-        memoryWrites: [],
-        suggestedActions: ["Watch the live activity panel while the agent updates the project."],
-        agent: null,
-        virtualProject: null,
-        agentRun,
-        runStarted: true,
-    };
+        return {
+            ...result,
+            runStarted: false, // run-ul s-a terminat, nu mai rulează
+            agentRun: {
+                ...agentRun,
+                ...result.agentRun,
+                status: "completed" as const,
+            },
+        };
+    } catch (error) {
+        emitAgentRunEvent(agentRun.id, {
+            type: "run_failed",
+            phase: "finalizing",
+            summary: error instanceof Error ? error.message : "Agent run failed.",
+            payload: {
+                conversationId: conversation.id,
+            },
+        });
+
+        return {
+            answer: error instanceof Error ? error.message : "Agent run failed.",
+            conversationId: conversation.id,
+            modelUsed: {
+                id: "agent-run",
+                provider: "system",
+                profile: "event-pipeline",
+                why: "Agent run failed.",
+            },
+            taskType,
+            contextSources: [],
+            memoryWrites: [],
+            suggestedActions: ["Check the agent activity panel for details."],
+            agent: null,
+            virtualProject: null,
+            agentRun: {
+                ...agentRun,
+                status: "failed" as const,
+            },
+            runStarted: false,
+        };
+    }
 }

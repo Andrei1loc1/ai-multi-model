@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Braces, Check, Copy, KeyRound, LockKeyhole, SquareMousePointer } from "lucide-react";
 
-const exampleModel = "qwen3-coder-free";
+const exampleModel = "ollama-kimi-k2.6";
 
 export default function Page() {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -38,8 +38,8 @@ export default function Page() {
             JSON.stringify(
                 {
                     success: true,
-                    model: "qwen/qwen3-coder:free",
-                    provider: "openrouter",
+                    model: "kimi-k2.6",
+                    provider: "ollama",
                     text: "async/await is syntax built on top of promises...",
                     raw: "{provider response object}",
                 },

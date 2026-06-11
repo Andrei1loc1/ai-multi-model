@@ -175,7 +175,14 @@ const MessageBubble = memo(function MessageBubble({
 
                     {message.pending ? (
                         <div className="rounded-[26px] border border-white/8 bg-white/[0.03] p-4 text-sm text-slate-300">
-                            Thinking...
+                            <span className="inline-flex items-center gap-1 animate-[textPulse_2s_ease-in-out_infinite]">
+                                Thinking
+                                <span className="inline-flex w-4">
+                                    <span className="animate-[dotPulse_1.4s_ease-in-out_infinite] opacity-0">.</span>
+                                    <span className="animate-[dotPulse_1.4s_ease-in-out_0.2s_infinite] opacity-0">.</span>
+                                    <span className="animate-[dotPulse_1.4s_ease-in-out_0.4s_infinite] opacity-0">.</span>
+                                </span>
+                            </span>
                         </div>
                     ) : (
                         <>
@@ -274,7 +281,7 @@ export default function ConversationThread({
 
     if (!messages.length && !loading) {
         return (
-            <div className="flex min-h-[340px] items-center justify-center rounded-[22px] border border-dashed border-white/10 bg-white/[0.02] p-6 text-center sm:min-h-[440px] sm:rounded-[28px] sm:p-8">
+            <div className="flex min-h-[320px] items-center justify-center rounded-[22px] border border-dashed border-white/10 bg-white/[0.02] p-6 text-center sm:min-h-[420px] sm:rounded-[28px] sm:p-8">
                 <div className="max-w-xl">
                     <div className="text-[10px] uppercase tracking-[0.34em] text-slate-500">Conversation</div>
                     <h3 className="mt-3 text-xl font-semibold tracking-[-0.03em] text-white sm:text-2xl">
@@ -292,7 +299,7 @@ export default function ConversationThread({
         <div
             ref={scrollContainerRef}
             onScroll={updateAutoScrollPreference}
-            className="message-card max-h-[calc(100vh-305px)] min-h-[360px] overflow-y-auto overflow-x-hidden rounded-[24px] border border-white/8 bg-[radial-gradient(circle_at_top,rgba(148,163,184,0.08),transparent_34%),linear-gradient(180deg,rgba(2,6,23,0.84),rgba(2,6,23,0.72))] p-2.5 shadow-[0_24px_80px_rgba(2,6,23,0.45)] sm:max-h-[calc(100vh-320px)] sm:min-h-[440px] sm:rounded-[30px] sm:p-3 md:p-4"
+            className="message-card max-h-[calc(100vh-120px)] min-h-[320px] overflow-y-auto overflow-x-hidden rounded-[24px] border border-white/8 bg-[radial-gradient(circle_at_top,rgba(148,163,184,0.08),transparent_34%),linear-gradient(180deg,rgba(2,6,23,0.84),rgba(2,6,23,0.72))] p-2.5 shadow-[0_24px_80px_rgba(2,6,23,0.45)] sm:max-h-[calc(100vh-140px)] sm:min-h-[420px] sm:rounded-[30px] sm:p-3 md:p-4"
         >
             <div className="mx-auto flex max-w-5xl flex-col gap-4 sm:gap-5">
                 {messages.map((message) => (

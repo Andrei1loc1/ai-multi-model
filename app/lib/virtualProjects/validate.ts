@@ -7,7 +7,26 @@ import type {
 const MAX_FILES = 24;
 const MAX_FILE_SIZE = 60_000;
 const MAX_TOTAL_SIZE = 240_000;
-const REACT_IMPORT_ALLOWLIST = new Set(["react", "react-dom", "react-dom/client"]);
+const REACT_IMPORT_ALLOWLIST = new Set([
+    "react",
+    "react-dom",
+    "react-dom/client",
+    "react/jsx-runtime",
+    "react/jsx-dev-runtime",
+    "framer-motion",
+    "lucide-react",
+    "tailwindcss",
+    "clsx",
+    "tailwind-merge",
+    "zustand",
+    "axios",
+    "date-fns",
+    "lodash",
+    "lodash-es",
+    "uuid",
+    "recharts",
+    "@tanstack/react-query",
+]);
 
 function normalizeProjectPath(path: string) {
     return path

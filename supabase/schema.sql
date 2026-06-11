@@ -150,6 +150,30 @@ create table if not exists image_analysis_cache (
 create index if not exists image_analysis_cache_sha256_idx
   on image_analysis_cache(sha256, bundle_version);
 
+create table if not exists document_assets (
+  id uuid primary key,
+  workspace_id uuid references workspaces(id) on delete set null,
+  conversation_id uuid references conversations(id) on delete cascade,
+  file_name text not null,
+  mime_type text not null,
+  storage_path text not null,
+  file_size_bytes integer not null,
+  sha256 text not null,
+  extracted_text text,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null default (now() + interval '3 days')
+);
+
+create index if not exists document_assets_sha256_idx
+  on document_assets(sha256);
+
+create index if not exists document_assets_conversation_idx
+  on document_assets(conversation_id);
+
+create index if not exists document_assets_expires_at_idx
+  on document_assets(expires_at)
+  where expires_at is not null;
+
 create table if not exists responses (
   id uuid primary key,
   title text not null,

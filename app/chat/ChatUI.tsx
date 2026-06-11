@@ -3,6 +3,7 @@
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
     ChevronDown,
+    FileText,
     FolderPlus,
     GitBranchPlus,
     Plus,
@@ -17,8 +18,7 @@ import ChatWindow from "@/app/components/Chat/ChatWindow";
 import ImageAttachmentStrip, {
     type ChatImageAttachmentPreview,
 } from "@/app/components/Chat/ImageAttachmentStrip";
-import ModelSelector from "@/app/components/Chat/ModelSelector";
-import ProviderSelector from "@/app/components/Chat/ProviderSelector";
+import SettingsDropdown from "@/app/components/Chat/SettingsDropdown";
 import type { ConversationMessageItem } from "@/app/components/Chat/ConversationThread";
 import SaveResponseModal from "@/app/components/modals/SaveResponseModal";
 import AgentActivityPanel from "@/app/components/Workspace/AgentActivityPanel";
@@ -27,6 +27,7 @@ import VirtualProjectPanel, {
 } from "@/app/components/Workspace/VirtualProjectPanel";
 import type { VirtualProjectPreviewStatus } from "@/app/components/Workspace/VirtualProjectPreview";
 import WorkspaceSidebar from "@/app/components/Workspace/WorkspaceSidebar";
+import Navbar from "@/app/components/Navigation/Navbar";
 import { getModelsForProvider, ProviderFilter } from "@/app/lib/AImodels/models";
 import { createPythonRuntime, type PythonRunResult, type PythonRuntimeSession } from "@/app/lib/virtualProjects/pythonRuntime";
 import { buildReactPreviewDocument } from "@/app/lib/virtualProjects/reactRuntime";
@@ -39,7 +40,11 @@ import type {
     VirtualProject,
     VirtualProjectRunSummary,
     VirtualProjectSummary,
+    DocumentAttachmentInput,
+    MessageDocumentAttachmentMetadata,
+    SoulType,
 } from "@/app/lib/workspaces/types";
+import { ALLOWED_DOCUMENT_EXTENSIONS, ALLOWED_DOCUMENT_MIME_TYPES } from "@/app/lib/documents/constants";
 
 type Workspace = {
     id: string;
@@ -232,6 +237,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
     const [selectedModel, setSelectedModel] = useState("auto");
     const [selectedProvider, setSelectedProvider] = useState<ProviderFilter>("all");
     const [mode, setMode] = useState<"chat" | "agent">("chat");
+    const [soul, setSoul] = useState<SoulType>("default");
     const [executionMode, setExecutionMode] = useState<"draft" | "apply">("draft");
     const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
     const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -255,8 +261,19 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
     const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
     const [saveResponseContent, setSaveResponseContent] = useState("");
     const imageInputRef = useRef<HTMLInputElement | null>(null);
+    const documentInputRef = useRef<HTMLInputElement | null>(null);
     const imageUploadSequenceRef = useRef(0);
     const imageAttachmentsRef = useRef<ChatImageAttachmentDraft[]>([]);
+    const [documentAttachments, setDocumentAttachments] = useState<Array<{
+        id: string;
+        file: File;
+        name: string;
+        status: "queued" | "uploading" | "ready" | "error";
+        errorMessage: string | null;
+        documentAssetId: string | null;
+        mimeType: string | null;
+    }>>([]);
+    const [showAttachPopup, setShowAttachPopup] = useState(false);
     const pythonRuntimeRef = useRef<PythonRuntimeSession | null>(null);
     const agentRunEventSourceRef = useRef<EventSource | null>(null);
     const activeAgentRunRef = useRef<AgentRunSnapshot | null>(null);
@@ -341,6 +358,10 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
             });
             return [];
         });
+    }, []);
+
+    const clearDocumentAttachments = useCallback(() => {
+        setDocumentAttachments([]);
     }, []);
 
     const resetProjectSurface = useCallback(() => {
@@ -817,8 +838,9 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
     useEffect(() => {
         if (!selectedConversationId) {
             clearImageAttachments();
+            clearDocumentAttachments();
         }
-    }, [clearImageAttachments, selectedConversationId]);
+    }, [clearImageAttachments, clearDocumentAttachments, selectedConversationId]);
 
     const handleSelectWorkspace = (workspaceId: string) => {
         setSelectedWorkspaceId(workspaceId);
@@ -831,6 +853,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         setShowAttachPanel(false);
         setShowMobileControls(false);
         clearImageAttachments();
+        clearDocumentAttachments();
         setStatusMessage("Workspace switched. Select a conversation or start a new thread.");
     };
 
@@ -857,6 +880,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                 setResult(null);
                 resetProjectSurface();
                 clearImageAttachments();
+                clearDocumentAttachments();
                 setStatusMessage("Workspace deleted.");
             }
 
@@ -893,6 +917,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
                 setResult(null);
                 resetProjectSurface();
                 clearImageAttachments();
+                clearDocumentAttachments();
                 setStatusMessage("Conversation deleted.");
             }
 
@@ -963,6 +988,63 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         [uploadImageAttachmentHandler]
     );
 
+    const uploadQueuedDocumentAttachment = useCallback(
+        async (target: typeof documentAttachments[0]) => {
+            setDocumentAttachments((current) =>
+                current.map((attachment) =>
+                    attachment.id === target.id
+                        ? { ...attachment, status: "uploading" as const, errorMessage: null }
+                        : attachment
+                )
+            );
+
+            try {
+                const dataUrl = await fileToDataUrl(target.file);
+                const response = await fetch("/api/uploads/document", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        fileName: target.name,
+                        dataUrl,
+                        workspaceId: selectedWorkspaceId,
+                        conversationId: selectedConversationId,
+                    }),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || "Failed to upload document.");
+                }
+
+                setDocumentAttachments((current) =>
+                    current.map((attachment) =>
+                        attachment.id === target.id
+                            ? {
+                                  ...attachment,
+                                  status: "ready" as const,
+                                  documentAssetId: data.asset.id,
+                                  mimeType: data.asset.mime_type || attachment.mimeType,
+                                  errorMessage: null,
+                              }
+                            : attachment
+                    )
+                );
+            } catch (uploadError: unknown) {
+                setDocumentAttachments((current) =>
+                    current.map((attachment) =>
+                        attachment.id === target.id
+                            ? {
+                                  ...attachment,
+                                  status: "error" as const,
+                                  errorMessage: uploadError instanceof Error ? uploadError.message : "Document upload failed.",
+                              }
+                            : attachment
+                    )
+                );
+            }
+        },
+        [selectedConversationId, selectedWorkspaceId]
+    );
+
     const handleImageSelection = useCallback(
         (event: ChangeEvent<HTMLInputElement>) => {
             const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith("image/"));
@@ -1000,6 +1082,40 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         [uploadQueuedImageAttachment]
     );
 
+    const handleDocumentSelection = useCallback(
+        (event: ChangeEvent<HTMLInputElement>) => {
+            const files = Array.from(event.target.files || []);
+            if (!files.length) {
+                event.target.value = "";
+                return;
+            }
+
+            const nextAttachments = files.map((file) => ({
+                id: `doc-attachment-${Date.now()}-${imageUploadSequenceRef.current++}`,
+                file,
+                name: file.name,
+                status: "queued" as const,
+                errorMessage: null as string | null,
+                documentAssetId: null as string | null,
+                mimeType: file.type || null,
+            }));
+
+            setDocumentAttachments((current) => [...current, ...nextAttachments]);
+            event.target.value = "";
+
+            nextAttachments.forEach((attachment) => {
+                void uploadQueuedDocumentAttachment(attachment);
+            });
+        },
+        [uploadQueuedDocumentAttachment]
+    );
+
+    const removeDocumentAttachment = useCallback((attachmentId: string) => {
+        setDocumentAttachments((current) =>
+            current.filter((attachment) => attachment.id !== attachmentId)
+        );
+    }, []);
+
     useEffect(() => {
         return () => {
             imageAttachmentsRef.current.forEach((attachment) => {
@@ -1009,6 +1125,13 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
             });
         };
     }, []);
+
+    useEffect(() => {
+        if (!showAttachPopup) return;
+        const handler = () => setShowAttachPopup(false);
+        document.addEventListener("click", handler);
+        return () => document.removeEventListener("click", handler);
+    }, [showAttachPopup]);
 
     const handleOpenVirtualProject = useCallback((projectId: string) => {
         void loadVirtualProject(projectId, "files").catch((loadError: unknown) => {
@@ -1172,16 +1295,38 @@ const sendMessage = async () => {
             return;
         }
 
+        const blockedDocAttachment = documentAttachments.find((a) => a.status === "uploading" || a.status === "queued");
+        const erroredDocAttachment = documentAttachments.find((a) => a.status === "error");
+
+        if (blockedDocAttachment) {
+            setError(`Wait for ${blockedDocAttachment.name || "the selected document"} to finish uploading.`);
+            return;
+        }
+        if (erroredDocAttachment) {
+            setError(`Remove ${erroredDocAttachment.name || "the failed document"} before sending.`);
+            return;
+        }
+
         const tempUserId = `temp-user-${Date.now()}`;
         const tempAssistantId = `temp-assistant-${Date.now()}`;
-        const outgoingAttachments: ImageAttachmentInput[] = readyAttachments.map((attachment) => ({
-            type: "image",
-            imageAssetId: attachment.imageAssetId as string,
-            name: attachment.name,
-            mimeType: attachment.mimeType,
-            width: attachment.width,
-            height: attachment.height,
-        }));
+        const outgoingAttachments: Array<ImageAttachmentInput | DocumentAttachmentInput> = [
+            ...readyAttachments.map((attachment): ImageAttachmentInput => ({
+                type: "image",
+                imageAssetId: attachment.imageAssetId as string,
+                name: attachment.name,
+                mimeType: attachment.mimeType,
+                width: attachment.width,
+                height: attachment.height,
+            })),
+            ...documentAttachments
+                .filter((a) => a.status === "ready" && a.documentAssetId)
+                .map((attachment): DocumentAttachmentInput => ({
+                    type: "document",
+                    documentAssetId: attachment.documentAssetId as string,
+                    name: attachment.name,
+                    mimeType: attachment.mimeType,
+                })),
+        ];
         const optimisticAttachments: MessageAttachmentMetadata[] = readyAttachments.map((attachment) => ({
             type: "image",
             imageAssetId: attachment.imageAssetId as string,
@@ -1227,6 +1372,7 @@ const sendMessage = async () => {
                     body: JSON.stringify({
                         message: outgoingMessage,
                         mode,
+                        soul,
                         selectedModel,
                         selectedProvider,
                         workspaceId: selectedWorkspaceId,
@@ -1307,6 +1453,7 @@ const sendMessage = async () => {
                     setResult(fullResponse);
                     setStatusMessage(`Using ${fullResponse.modelUsed.id} on ${fullResponse.modelUsed.provider} via ${fullResponse.modelUsed.profile}.`);
                     clearImageAttachments();
+                    clearDocumentAttachments();
 
                     const agentRunStarted = mode === "agent" && Boolean((fullResponse as OrchestrateChatOutput & { runStarted?: boolean }).runStarted && fullResponse.agentRun?.id);
 
@@ -1337,23 +1484,31 @@ const sendMessage = async () => {
 
                     if (fullResponse.conversationId !== selectedConversationId) {
                         setSelectedConversationId(fullResponse.conversationId);
-                    } else {
-                        await loadConversationThread(fullResponse.conversationId);
-                        if (fullResponse.virtualProject?.id) {
-                            const refreshedProject = await loadVirtualProject(fullResponse.virtualProject.id, "overview");
-                            if (refreshedProject && previousProjectId === refreshedProject.id) {
-                                setStatusMessage("Updated the current virtual project in place and reran its preview.");
-                                await runVirtualProjectPreview(refreshedProject);
-                            }
+                    }
+
+                    setMessages((current) => {
+                        const hasTempMessage = current.some((msg) => msg.id === tempAssistantId);
+                        if (hasTempMessage) {
+                            return current.map((msg) =>
+                                msg.id === tempAssistantId ? { ...msg, pending: false } : msg
+                            );
                         }
+                        return current;
+                    });
+
+                    if (fullResponse.virtualProject?.id) {
+                        const refreshedProject = await loadVirtualProject(fullResponse.virtualProject.id, "overview");
+                        if (refreshedProject && previousProjectId === refreshedProject.id) {
+                            setStatusMessage("Updated the current virtual project in place and reran its preview.");
+                            await runVirtualProjectPreview(refreshedProject);
+                        }
+                    }
+
+                    if (fullResponse.conversationId) {
+                        await loadConversationThread(fullResponse.conversationId);
                     }
                 }
 
-                setMessages((current) =>
-                    current.map((msg) =>
-                        msg.id === tempAssistantId ? { ...msg, pending: false } : msg
-                    )
-                );
                 return;
             }
 
@@ -1385,6 +1540,7 @@ const sendMessage = async () => {
             setResult(data);
             setStatusMessage(`Using ${data.modelUsed.id} on ${data.modelUsed.provider} via ${data.modelUsed.profile}.`);
             clearImageAttachments();
+            clearDocumentAttachments();
             const agentRunStarted = mode === "agent" && Boolean((data as OrchestrateChatOutput & { runStarted?: boolean }).runStarted && data.agentRun?.id);
 
             if (agentRunStarted && data.agentRun) {
@@ -1412,20 +1568,24 @@ const sendMessage = async () => {
 
                 if (data.conversationId !== selectedConversationId) {
                     setSelectedConversationId(data.conversationId);
-                } else {
-                    await loadConversationThread(data.conversationId);
-                    if (data.virtualProject?.id) {
-                        const refreshedProject = await loadVirtualProject(data.virtualProject.id, "overview");
-                        if (refreshedProject && previousProjectId === refreshedProject.id) {
-                            setStatusMessage("Updated the current virtual project in place and reran its preview.");
-                            await runVirtualProjectPreview(refreshedProject);
-                        }
+                }
+
+                if (data.virtualProject?.id) {
+                    const refreshedProject = await loadVirtualProject(data.virtualProject.id, "overview");
+                    if (refreshedProject && previousProjectId === refreshedProject.id) {
+                        setStatusMessage("Updated the current virtual project in place and reran its preview.");
+                        await runVirtualProjectPreview(refreshedProject);
                     }
+                }
+
+                if (data.conversationId) {
+                    await loadConversationThread(data.conversationId);
                 }
             }
         } catch (sendError: unknown) {
             setMessages((current) => current.filter((message) => message.id !== tempUserId && message.id !== tempAssistantId));
             setInput(outgoingMessage);
+            clearDocumentAttachments();
             setError(sendError instanceof Error ? sendError.message : "Failed to send message.");
         } finally {
             setLoading(false);
@@ -1453,6 +1613,7 @@ const sendMessage = async () => {
             setShowAttachPanel(false);
             setShowMobileControls(false);
             clearImageAttachments();
+            clearDocumentAttachments();
             setStatusMessage(`Workspace ${data.workspace.name} created.`);
             await loadWorkspaceState(data.workspace.id);
         } else {
@@ -1588,9 +1749,12 @@ const sendMessage = async () => {
     }, [activeProject, pythonPreviewResult, reactPreviewDocument]);
 
     return (
-        <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-2.5 overflow-x-clip px-2.5 pb-2.5 pt-16 sm:px-3 lg:px-4 lg:pb-3 lg:pt-6">
-            <div className="grid min-w-0 grid-cols-1 gap-2.5 xl:grid-cols-[280px_minmax(0,1fr)] xl:items-start">
+        <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-2.5 overflow-x-clip px-2.5 pb-2.5 pt-4 sm:px-3 lg:px-4 lg:pb-3 lg:pt-6">
+            <div className="grid min-w-0 grid-cols-1 gap-2.5 xl:grid-cols-[280px_minmax(0,1fr)]">
+                <div className="flex h-full flex-col gap-2.5">
+                <Navbar />
                 <WorkspaceSidebar
+                    className="flex-1"
                     workspaces={workspaces}
                     conversations={visibleConversations}
                     selectedWorkspaceId={selectedWorkspaceId}
@@ -1601,170 +1765,120 @@ const sendMessage = async () => {
                     onDeleteConversation={handleDeleteConversation}
                     onCreateWorkspace={createWorkspace}
                 />
+                </div>
 
                 <main className="min-w-0 rounded-[24px] border border-white/8 bg-slate-950/74 p-2.5 shadow-[0_18px_60px_rgba(2,6,23,0.42)] backdrop-blur-xl sm:rounded-[28px] sm:p-3">
-                    <div className="grid gap-2.5 sm:gap-3">
-                        <section className="rounded-[22px] border border-white/6 bg-white/[0.03] p-3 sm:rounded-[26px] sm:p-4">
-                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                                <div className="min-w-0">
-                                    <h1 className="flex items-center gap-2 text-[1.35rem] font-semibold text-white sm:text-2xl">
-                                        Multi-Model Cloud Agent
-                                        <Sparkles size={17} className="text-cyan-200 sm:h-[18px] sm:w-[18px]" />
-                                    </h1>
-                                </div>
-
-                                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                                    <div className="flex rounded-full border border-white/8 bg-white/[0.03] p-1">
-                                        {(["chat", "agent"] as const).map((item) => (
-                                            <button
-                                                key={item}
-                                                onClick={() => {
-                                                    setMode(item);
-                                                    if (item === "agent" && activeProjectTab === "overview") {
-                                                        setActiveProjectTab("files");
-                                                    }
-                                                }}
-                                                className={`rounded-full px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.24em] transition sm:px-4 sm:py-2 sm:text-xs ${
-                                                    mode === item ? "bg-cyan-300/18 text-white" : "text-slate-400"
-                                                }`}
-                                            >
-                                                {item}
-                                            </button>
-                                        ))}
-                                    </div>
-
-                                    {mode === "agent" && (
-                                        <div className="flex items-center gap-2 rounded-2xl border border-white/8 bg-white/[0.03] px-2.5 py-1.5">
-                                            <span className="text-[9px] uppercase tracking-[0.28em] text-slate-500">
-                                                Mode
-                                            </span>
-                                            <select
-                                                value={executionMode}
-                                                onChange={(event) =>
-                                                    setExecutionMode(event.target.value as "draft" | "apply")
-                                                }
-                                                className="rounded-xl border border-white/8 bg-slate-950/75 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-white outline-none transition hover:border-violet-300/20 focus:border-violet-300/30"
-                                            >
-                                                <option value="draft">Draft</option>
-                                                <option value="apply">Apply</option>
-                                            </select>
-                                        </div>
-                                    )}
-                                </div>
+                    <div className="grid gap-2 sm:gap-2.5">
+                        <section className="flex items-center gap-2 rounded-[18px] border border-white/6 bg-white/[0.03] px-3 py-2 sm:rounded-[20px]">
+                            <div className="flex rounded-full border border-white/8 bg-white/[0.03] p-0.5">
+                                {(["chat", "agent"] as const).map((item) => (
+                                    <button
+                                        key={item}
+                                        onClick={() => {
+                                            setMode(item);
+                                            if (item === "agent" && activeProjectTab === "overview") {
+                                                setActiveProjectTab("files");
+                                            }
+                                        }}
+                                        className={`rounded-full px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.2em] transition ${
+                                            mode === item ? "bg-cyan-300/18 text-white" : "text-slate-400 hover:text-slate-300"
+                                        }`}
+                                    >
+                                        {item}
+                                    </button>
+                                ))}
                             </div>
-                        </section>
 
-                        <section className="rounded-[20px] border border-white/6 bg-white/[0.03] p-2.5 sm:rounded-[24px] sm:p-3">
-                            <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                    <div className="text-[9px] uppercase tracking-[0.28em] text-slate-500">Active Thread</div>
-                                    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400 sm:text-[11px]">
-                                        <span className="rounded-full border border-white/8 bg-slate-950/55 px-2.5 py-1">
-                                            {selectedWorkspace ? selectedWorkspace.name : "No workspace"}
-                                        </span>
-                                        <span className="rounded-full border border-white/8 bg-slate-950/55 px-2.5 py-1">
-                                            {(selectedConversation ? selectedConversation.mode : mode).toUpperCase()}
-                                        </span>
-                                        {result?.modelUsed?.id && (
-                                            <span className="rounded-full border border-white/8 bg-slate-950/55 px-2.5 py-1">
-                                                {result.modelUsed.id}
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-
-                                <button
-                                    type="button"
-                                    onClick={() => setShowMobileControls((value) => !value)}
-                                    className="inline-flex h-9 shrink-0 items-center gap-2 rounded-2xl border border-white/8 bg-slate-950/75 px-3 text-[11px] font-medium uppercase tracking-[0.2em] text-white transition hover:border-cyan-300/20 hover:bg-slate-900/85 lg:hidden"
+                            {mode === "agent" && (
+                                <select
+                                    value={executionMode}
+                                    onChange={(event) => setExecutionMode(event.target.value as "draft" | "apply")}
+                                    className="h-7 rounded-xl border border-white/8 bg-slate-950/75 px-2 text-[10px] font-medium uppercase tracking-[0.18em] text-white outline-none transition hover:border-violet-300/20 focus:border-violet-300/30"
                                 >
-                                    <SlidersHorizontal size={14} />
-                                    Controls
-                                    <ChevronDown size={14} className={`transition-transform ${showMobileControls ? "rotate-180" : ""}`} />
-                                </button>
-                            </div>
+                                    <option value="draft">Draft</option>
+                                    <option value="apply">Apply</option>
+                                </select>
+                            )}
 
-                            <div className={`mt-3 ${showMobileControls ? "block" : "hidden"} lg:mt-0 lg:block`}>
-                                <div className="rounded-[18px] border border-white/6 bg-slate-950/45 p-2.5 sm:rounded-[22px] sm:p-3">
-                                    <div className="mb-2 text-[9px] uppercase tracking-[0.28em] text-slate-500 lg:hidden">Controls</div>
-                                    <div className="grid gap-2 sm:grid-cols-2 2xl:flex 2xl:flex-wrap 2xl:items-center">
-                                        <ProviderSelector
-                                            selectedProvider={selectedProvider}
-                                            setSelectedProvider={setSelectedProvider}
-                                        />
+                            <div className="mx-1 h-4 w-px bg-white/8" />
 
-                                        <ModelSelector
-                                            selectedModel={selectedModel}
-                                            setSelectedModel={setSelectedModel}
-                                            selectedProvider={selectedProvider}
-                                        />
+                            <SettingsDropdown
+                                selectedProvider={selectedProvider}
+                                setSelectedProvider={setSelectedProvider}
+                                selectedModel={selectedModel}
+                                setSelectedModel={setSelectedModel}
+                                soul={soul}
+                                setSoul={setSoul}
+                                showSoul={mode === "chat"}
+                            />
 
-                                        <button
-                                            onClick={() => {
-                                                setShowAttachPanel((value) => !value);
-                                                setShowMobileControls(true);
-                                            }}
-                                            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-white/8 bg-slate-950/75 px-3.5 text-sm text-white transition hover:border-cyan-300/20 hover:bg-slate-900/85"
-                                        >
-                                            <FolderPlus size={16} />
-                                            Attach
-                                        </button>
+                            <button
+                                onClick={() => {
+                                    setShowAttachPanel((value) => !value);
+                                    setShowMobileControls(true);
+                                }}
+                                className="inline-flex h-7 items-center justify-center gap-1.5 rounded-xl border border-white/8 bg-slate-950/75 px-2.5 text-[11px] text-white transition hover:border-cyan-300/20 hover:bg-slate-900/85"
+                            >
+                                <FolderPlus size={13} />
+                                <span className="hidden sm:inline">Attach</span>
+                            </button>
 
-                                        <button
-                                            onClick={reindexRepo}
-                                            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-white/8 bg-slate-950/75 px-3.5 text-sm text-white transition hover:border-cyan-300/20 hover:bg-slate-900/85"
-                                        >
-                                            <RefreshCcw size={16} />
-                                            Reindex
-                                        </button>
-                                    </div>
-                                </div>
+                            <button
+                                onClick={reindexRepo}
+                                className="inline-flex h-7 items-center justify-center gap-1.5 rounded-xl border border-white/8 bg-slate-950/75 px-2.5 text-[11px] text-white transition hover:border-cyan-300/20 hover:bg-slate-900/85"
+                            >
+                                <RefreshCcw size={13} />
+                                <span className="hidden sm:inline">Reindex</span>
+                            </button>
 
-                                {showAttachPanel && (
-                                    <div className="mt-3 rounded-[20px] border border-violet-300/10 bg-violet-300/[0.08] p-3 sm:rounded-[22px] sm:p-4">
-                                        <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white">
-                                            <GitBranchPlus size={16} />
-                                            Connect GitHub repository
-                                        </div>
-                                        <div className="flex flex-col gap-2 md:flex-row">
-                                            <input
-                                                value={repoUrl}
-                                                onChange={(e) => setRepoUrl(e.target.value)}
-                                                placeholder="https://github.com/owner/repo"
-                                                className="h-10 flex-1 rounded-2xl border border-white/10 bg-slate-950/70 px-3.5 text-sm text-white outline-none transition focus:border-cyan-300/30 sm:h-11 sm:px-4"
-                                            />
-                                            <button
-                                                onClick={connectRepo}
-                                                className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-cyan-300/[0.16] px-4 text-sm font-medium text-white transition hover:bg-cyan-300/[0.24] sm:h-11"
-                                            >
-                                                <Plus size={15} />
-                                                Connect
-                                            </button>
-                                        </div>
-                                        <p className="mt-2 text-xs leading-5 text-slate-300">
-                                            Attach a repo to improve code context, retrieval and agent output inside this thread.
-                                        </p>
-                                    </div>
-                                )}
-                            </div>
+                            {result?.modelUsed?.id && (
+                                <span className="rounded-full border border-white/8 bg-slate-950/55 px-2 py-0.5 text-[10px] text-slate-400">
+                                    {result.modelUsed.id}
+                                </span>
+                            )}
                         </section>
 
-                        <section className="rounded-[22px] border border-white/6 bg-white/[0.03] p-2.5 sm:rounded-[26px] sm:p-3">
-                            <div className="mb-2.5 flex items-start gap-3 rounded-[18px] border border-white/6 bg-slate-950/45 p-2.5 sm:mb-3 sm:rounded-[22px] sm:p-3">
-                                <div className="mt-0.5 rounded-2xl border border-emerald-300/10 bg-emerald-300/[0.08] p-2 text-emerald-200">
-                                    <ShieldCheck size={15} />
+                        {showAttachPanel && (
+                            <div className="rounded-[18px] border border-violet-300/10 bg-violet-300/[0.08] p-3 sm:rounded-[20px]">
+                                <div className="mb-2 flex items-center gap-2 text-sm font-medium text-white">
+                                    <GitBranchPlus size={15} />
+                                    Connect GitHub repository
                                 </div>
-                                <div className="min-w-0">
-                                    <div className="text-sm font-medium text-white">{statusMessage}</div>
-                                    <div className="mt-1 text-[11px] leading-5 text-slate-400 sm:text-xs">
-                                        {result?.taskType ? `Task: ${result.taskType}` : "Thread-first chat enabled."}
-                                    </div>
-                                    {error && (
-                                        <div className="mt-2 rounded-2xl border border-red-400/15 bg-red-400/[0.08] px-3 py-2 text-xs text-red-200">
-                                            {error}
-                                        </div>
-                                    )}
+                                <div className="flex flex-col gap-2 md:flex-row">
+                                    <input
+                                        value={repoUrl}
+                                        onChange={(e) => setRepoUrl(e.target.value)}
+                                        placeholder="https://github.com/owner/repo"
+                                        className="h-9 flex-1 rounded-xl border border-white/10 bg-slate-950/70 px-3 text-sm text-white outline-none transition focus:border-cyan-300/30"
+                                    />
+                                    <button
+                                        onClick={connectRepo}
+                                        className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-cyan-300/[0.16] px-4 text-sm font-medium text-white transition hover:bg-cyan-300/[0.24]"
+                                    >
+                                        <Plus size={14} />
+                                        Connect
+                                    </button>
                                 </div>
+                                <p className="mt-1.5 text-[11px] leading-5 text-slate-400">
+                                    Attach a repo to improve code context and agent output.
+                                </p>
+                            </div>
+                        )}
+
+                        <section className="rounded-[18px] border border-white/6 bg-white/[0.03] p-2 sm:rounded-[20px]">
+                            <div className="mb-2 flex items-center gap-2 text-[11px] text-slate-400">
+                                <ShieldCheck size={13} className="shrink-0 text-emerald-300/70" />
+                                <span className="truncate">{statusMessage}</span>
+                                {result?.taskType && (
+                                    <span className="shrink-0 rounded-full border border-white/8 bg-slate-950/55 px-2 py-0.5 text-[10px]">
+                                        {result.taskType}
+                                    </span>
+                                )}
+                                {error && (
+                                    <span className="shrink-0 rounded-full border border-red-400/15 bg-red-400/[0.08] px-2 py-0.5 text-[10px] text-red-200">
+                                        {error}
+                                    </span>
+                                )}
                             </div>
 
                             <ChatWindow
@@ -1830,6 +1944,35 @@ const sendMessage = async () => {
                                         />
                                     </div>
                                 )}
+                                {documentAttachments.length > 0 && (
+                                    <div className="mb-2 rounded-[12px] border border-white/6 bg-white/[0.02] p-1.5 sm:rounded-[14px] sm:p-2">
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {documentAttachments.map((attachment) => (
+                                                <div
+                                                    key={attachment.id}
+                                                    className="flex items-center gap-2 rounded-[8px] border border-white/8 bg-white/[0.04] px-2 py-1.5 text-xs text-white"
+                                                >
+                                                    <FileText size={12} className="shrink-0 text-cyan-300/60" />
+                                                    <span className="max-w-[140px] truncate">{attachment.name}</span>
+                                                    {attachment.status === "uploading" || attachment.status === "queued" ? (
+                                                        <span className="text-slate-400">Uploading...</span>
+                                                    ) : attachment.status === "error" ? (
+                                                        <span className="text-red-400" title={attachment.errorMessage || undefined}>Error</span>
+                                                    ) : (
+                                                        <span className="text-emerald-400">Ready</span>
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeDocumentAttachment(attachment.id)}
+                                                        className="ml-0.5 text-slate-500 transition hover:text-white"
+                                                    >
+                                                        &times;
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
 
                                 <div className="flex items-end gap-2">
                                     <input
@@ -1838,21 +1981,95 @@ const sendMessage = async () => {
                                         accept="image/*"
                                         multiple
                                         className="hidden"
-                                        onChange={handleImageSelection}
+                                        onChange={(e) => {
+                                            handleImageSelection(e);
+                                            setShowAttachPopup(false);
+                                        }}
+                                    />
+                                    <input
+                                        ref={documentInputRef}
+                                        type="file"
+                                        accept={ALLOWED_DOCUMENT_EXTENSIONS.join(",")}
+                                        multiple
+                                        className="hidden"
+                                        onChange={(e) => {
+                                            handleDocumentSelection(e);
+                                            setShowAttachPopup(false);
+                                        }}
                                     />
 
-                                    <button
-                                        type="button"
-                                        onClick={() => imageInputRef.current?.click()}
-                                        className="inline-flex h-[42px] shrink-0 items-center justify-center gap-2 rounded-[14px] border border-white/8 bg-white/[0.03] px-3 text-sm font-medium text-white transition hover:border-cyan-300/20 hover:bg-white/[0.06] sm:h-[46px] sm:px-3.5"
-                                    >
-                                        <ImagePlus size={16} />
-                                        <span className="hidden sm:inline">Attach image</span>
-                                    </button>
+                                    <div className="relative">
+                                        <button
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); setShowAttachPopup((prev) => !prev); }}
+                                            className="inline-flex h-[42px] shrink-0 items-center justify-center gap-2 rounded-[14px] border border-white/8 bg-white/[0.03] px-3 text-sm font-medium text-white transition hover:border-cyan-300/20 hover:bg-white/[0.06] sm:h-[46px] sm:px-3.5"
+                                        >
+                                            <Plus size={16} />
+                                            <span className="hidden sm:inline">Attach</span>
+                                        </button>
+                                        {showAttachPopup && (
+                                            <div className="absolute bottom-full left-0 z-50 mb-2 flex w-36 flex-col gap-1 rounded-[12px] border border-white/10 bg-slate-900/95 p-1.5 shadow-lg backdrop-blur-xl sm:mb-3">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        imageInputRef.current?.click();
+                                                    }}
+                                                    className="flex items-center gap-2 rounded-[8px] px-3 py-2 text-sm text-white transition hover:bg-white/[0.08]"
+                                                >
+                                                    <ImagePlus size={14} />
+                                                    Image
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        documentInputRef.current?.click();
+                                                    }}
+                                                    className="flex items-center gap-2 rounded-[8px] px-3 py-2 text-sm text-white transition hover:bg-white/[0.08]"
+                                                >
+                                                    <FileText size={14} />
+                                                    Document
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
 
                                     <textarea
                                         value={input}
                                         onChange={(e) => setInput(e.target.value)}
+                                        onPaste={(e) => {
+                                            const items = e.clipboardData?.items;
+                                            if (!items) return;
+                                            const imageFiles: File[] = [];
+                                            for (let i = 0; i < items.length; i++) {
+                                                const item = items[i];
+                                                if (item.type.startsWith("image/")) {
+                                                    const file = item.getAsFile();
+                                                    if (file) imageFiles.push(file);
+                                                }
+                                            }
+                                            if (!imageFiles.length) return;
+                                            e.preventDefault();
+                                            const nextAttachments = imageFiles.map((file) => {
+                                                const id = `image-attachment-${Date.now()}-${imageUploadSequenceRef.current++}`;
+                                                const previewUrl = URL.createObjectURL(file);
+                                                return {
+                                                    id,
+                                                    file,
+                                                    name: file.name || `pasted-image-${Date.now()}.png`,
+                                                    previewUrl,
+                                                    status: "queued" as const,
+                                                    errorMessage: null,
+                                                    imageAssetId: null,
+                                                    mimeType: file.type,
+                                                    width: null,
+                                                    height: null,
+                                                };
+                                            });
+                                            setImageAttachments((current) => [...current, ...nextAttachments]);
+                                            nextAttachments.forEach((attachment) => {
+                                                void uploadQueuedImageAttachment(attachment);
+                                            });
+                                        }}
                                         placeholder={
                                             mode === "agent"
                                                 ? "Ask for code, repo, or a patch."
@@ -1864,7 +2081,7 @@ const sendMessage = async () => {
 
                                     <button
                                         onClick={sendMessage}
-                                        disabled={loading || imageAttachments.some((attachment) => attachment.status === "uploading" || attachment.status === "queued")}
+                                        disabled={loading || imageAttachments.some((attachment) => attachment.status === "uploading" || attachment.status === "queued") || documentAttachments.some((a) => a.status === "uploading" || a.status === "queued")}
                                         className="inline-flex h-[42px] shrink-0 items-center justify-center gap-2 rounded-[14px] bg-gradient-to-r from-cyan-400/28 to-violet-400/24 px-3.5 text-sm font-medium text-white transition hover:from-cyan-400/38 hover:to-violet-400/34 disabled:opacity-50 sm:h-[46px] sm:px-4"
                                     >
                                         <Send size={16} />

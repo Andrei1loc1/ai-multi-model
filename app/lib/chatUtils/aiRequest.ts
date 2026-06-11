@@ -214,5 +214,125 @@ export async function aiRequest(model: AIModel, input: AIRequestInput, stream: b
         }
     }
 
+    if (model.provider === "ollama") {
+        const key = model.apiKey || process.env.OLLAMA_API_KEY;
+        const endpoint = model.endpoint || process.env.OLLAMA_ENDPOINT || "https://ollama.com/api/chat";
+
+        if (!key) {
+            throw new Error("Missing OLLAMA_API_KEY for Ollama Cloud.");
+        }
+
+        try {
+            const response = await axios.post(
+                endpoint,
+                {
+                    model: model.model,
+                    messages: [
+                        ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
+                        { role: "user", content: prompt },
+                    ],
+                    ...(typeof temperature === "number" ? { options: { temperature } } : {}),
+                    stream: stream,
+                },
+                {
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${key}`,
+                    },
+                    responseType: stream ? "stream" : "json",
+                }
+            );
+
+            if (stream) {
+                // Ollama streams newline-delimited JSON objects.
+                // Convert Node.js Readable to Web ReadableStream and parse Ollama chunks.
+                const nodeStream = response.data as unknown as Readable;
+                const webStream = Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>;
+
+                const encoder = new TextEncoder();
+                const decoder = new TextDecoder();
+
+                return new ReadableStream({
+                    async start(controller) {
+                        const reader = webStream.getReader();
+                        let buffer = "";
+                        try {
+                            while (true) {
+                                const { done, value } = await reader.read();
+                                if (done) break;
+
+                                buffer += decoder.decode(value, { stream: true });
+                                const lines = buffer.split("\n");
+                                buffer = lines.pop() || "";
+
+                                for (const line of lines) {
+                                    if (!line.trim()) continue;
+                                    try {
+                                        const parsed = JSON.parse(line);
+                                        const content = parsed.message?.content || "";
+                                        const doneFlag = parsed.done || false;
+
+                                        if (content) {
+                                            // Emit in OpenAI-compatible SSE format so upstream code works
+                                            controller.enqueue(
+                                                encoder.encode(
+                                                    `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`
+                                                )
+                                            );
+                                        }
+                                        if (doneFlag) {
+                                            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                                        }
+                                    } catch {
+                                        // Skip malformed lines
+                                    }
+                                }
+                            }
+                            // Process remaining buffer
+                            if (buffer.trim()) {
+                                try {
+                                    const parsed = JSON.parse(buffer);
+                                    const content = parsed.message?.content || "";
+                                    if (content) {
+                                        controller.enqueue(
+                                            encoder.encode(
+                                                `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`
+                                            )
+                                        );
+                                    }
+                                } catch {
+                                    // ignore
+                                }
+                            }
+                            controller.close();
+                        } catch (err) {
+                            controller.error(err);
+                        }
+                    },
+                });
+            }
+
+            // Non-streaming Ollama response
+            const rawContent = response.data?.message?.content;
+            const text = typeof rawContent === "string" ? rawContent : "[No response received]";
+
+            return { text, raw: response.data };
+        } catch (error: unknown) {
+            const err = error as AxiosError<{ error?: string; message?: string }>;
+            const status = err.response?.status;
+            const message =
+                err.response?.data?.error ||
+                err.response?.data?.message ||
+                err.message ||
+                "Unknown error";
+
+            throw new AIRequestError(`AI Request failed (Ollama): ${message}`, {
+                provider: "ollama",
+                status,
+                retriable: isRetriableStatus(status),
+            });
+        }
+    }
+
     throw new Error(`Provider unknown: ${model.provider}`);
 }
