@@ -606,7 +606,13 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
             [...threadMessages].reverse().find((message) => message.role === "assistant") || null;
 
         startTransition(() => {
-            setMessages(threadMessages);
+            setMessages((current) => {
+                const dbIds = new Set(threadMessages.map((m) => m.id));
+                const optimisticKept = current.filter((m) => !dbIds.has(m.id) && m.role === "user");
+                const merged = [...optimisticKept, ...threadMessages];
+                merged.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+                return merged;
+            });
             setMode(data.conversation.mode === "agent" ? "agent" : "chat");
             setSelectedWorkspaceId(data.conversation.workspace_id || null);
             setResult(latestAssistant ? buildLoadedResult(latestAssistant, data.conversation.id) : null);
