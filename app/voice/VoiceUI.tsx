@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Mic, MicOff, Loader2 } from "lucide-react";
+import { Mic, MicOff, Loader2, RotateCcw } from "lucide-react";
 import Navbar from "@/app/components/Navigation/Navbar";
 import VoiceOrb from "@/app/voice/VoiceOrb";
 import { useSpeechRecognition } from "@/app/voice/useSpeechRecognition";
@@ -29,6 +29,20 @@ export default function VoiceUI() {
     const speechRecognition = useSpeechRecognition();
     const analyser = useAudioAnalyser();
     const tts = useTextToSpeech();
+
+    const resetState = useCallback(() => {
+        setConversation([]);
+        setConversationId(null);
+        setStreamingText("");
+        setAppState("idle");
+        setErrorMessage(null);
+        if (abortRef.current) {
+            abortRef.current.abort();
+            abortRef.current = null;
+        }
+        speechRecognition.stopListening();
+        tts.stop();
+    }, [tts, speechRecognition]);
 
     const orbState = (() => {
         if (appState === "idle" || appState === "error") return "idle" as const;
@@ -279,17 +293,28 @@ export default function VoiceUI() {
                     )}
                 </div>
 
-                <button
-                    onClick={handleTap}
-                    disabled={buttonConfig.disabled}
-                    className={`inline-flex items-center gap-2 rounded-xl border px-6 py-3 text-sm font-medium uppercase tracking-[0.15em] transition ${buttonConfig.className} ${buttonConfig.disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
-                >
-                    <buttonConfig.icon
-                        size={16}
-                        className={buttonConfig.disabled && appState === "responding" ? "animate-spin" : ""}
-                    />
-                    {buttonConfig.text}
-                </button>
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={handleTap}
+                        disabled={buttonConfig.disabled}
+                        className={`inline-flex items-center gap-2 rounded-xl border px-6 py-3 text-sm font-medium uppercase tracking-[0.15em] transition ${buttonConfig.className} ${buttonConfig.disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
+                    >
+                        <buttonConfig.icon
+                            size={16}
+                            className={buttonConfig.disabled && appState === "responding" ? "animate-spin" : ""}
+                        />
+                        {buttonConfig.text}
+                    </button>
+                    {conversation.length > 0 && (
+                        <button
+                            onClick={() => { tts.stop(); resetState(); }}
+                            title="New conversation"
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-xs font-medium text-slate-400 hover:bg-white/10 hover:text-slate-200 transition cursor-pointer"
+                        >
+                            <RotateCcw size={14} />
+                        </button>
+                    )}
+                </div>
 
                 {!speechRecognition.supported && (
                     <p className="text-xs text-red-300/80 text-center max-w-sm">
