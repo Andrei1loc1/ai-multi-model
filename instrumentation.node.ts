@@ -1,14 +1,14 @@
 export async function register() {
-    const originalEmit = process.emit.bind(process) as typeof process.emit;
-    const suppressUrlParse = (event: string, ...args: unknown[]): unknown => {
-        if (event === "warning" && args[0] instanceof Error) {
-            const msg = args[0].message || "";
-            if (msg.includes("url.parse()") && msg.includes("DeprecationWarning")) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const orig: any = process.emit;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    process.emit = function (event: any, ...args: any[]): any {
+        if (event === "warning") {
+            const err = args[0] as Error | undefined;
+            if (err?.message?.includes("url.parse()")) {
                 return false;
             }
         }
-        return (originalEmit as (event: string, ...args: unknown[]) => unknown)(event, ...args);
+        return orig.apply(this, arguments);
     };
-    // @ts-expect-error -- suppressing url.parse deprecation at runtime
-    process.emit = suppressUrlParse;
 }

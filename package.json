@@ -29,6 +29,9 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0"
   },
+  "overrides": {
+    "follow-redirects": "1.15.11"
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
