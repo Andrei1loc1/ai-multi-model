@@ -81,21 +81,10 @@ function needsWebSearch(message: string) {
 
 async function performWebSearch(query: string): Promise<Array<{ type: "web"; label: string; content: string; score: number }>> {
     try {
-        const baseUrl = process.env.VERCEL_URL
-            ? `https://${process.env.VERCEL_URL}`
-            : process.env.NEXT_PUBLIC_VERCEL_URL
-              ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
-              : "http://localhost:3000";
-        const res = await fetch(`${baseUrl}/api/web-search`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query }),
-            signal: AbortSignal.timeout(15000),
-        });
-        if (!res.ok) return [];
-        const data = await res.json() as { results?: Array<{ title: string; snippet: string; url: string }> };
-        if (!data.results?.length) return [];
-        return data.results.slice(0, 5).map((r, i) => ({
+        const { webSearch } = await import("@/app/lib/web-search/search");
+        const results = await webSearch(query);
+        if (!results.length) return [];
+        return results.slice(0, 5).map((r, i) => ({
             type: "web" as const,
             label: r.title,
             content: r.snippet ? `${r.snippet} [Source: ${r.url}]` : `[Source: ${r.url}]`,
