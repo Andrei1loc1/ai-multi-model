@@ -4,90 +4,103 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 async function ddgLiteSearch(query: string) {
-    const body = `q=${encodeURIComponent(query)}&kl=ro-ro`;
-    const response = await fetch("https://lite.duckduckgo.com/lite/", {
-        method: "POST",
-        headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body,
-        signal: AbortSignal.timeout(10000),
-    });
+    try {
+        const body = `q=${encodeURIComponent(query)}&kl=ro-ro`;
+        const response = await fetch("https://lite.duckduckgo.com/lite/", {
+            method: "POST",
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+            body,
+            signal: AbortSignal.timeout(10000),
+            redirect: "follow",
+        });
 
-    if (!response.ok) return [];
+        if (!response.ok) return [];
 
-    const html = await response.text();
-    const results: Array<{ title: string; snippet: string; url: string }> = [];
+        const html = await response.text();
+        if (!html || html.length < 100) return [];
 
-    const rowRegex = /<tr[^>]*>\s*<td[^>]*>\s*<a[^>]*href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-    let match: RegExpExecArray | null;
-    const seen = new Set<string>();
+        const results: Array<{ title: string; snippet: string; url: string }> = [];
 
-    while ((match = rowRegex.exec(html)) !== null && results.length < 8) {
-        const url = match[1]
-            .replace(/&amp;/g, "&")
-            .replace(/&#39;/g, "'");
-        const title = match[2].replace(/<[^>]+>/g, "").trim();
-        if (url && title && !seen.has(url)) {
-            seen.add(url);
-            results.push({ title, snippet: "", url });
+        const rowRegex = /<a[^>]*href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+        let match: RegExpExecArray | null;
+        const seen = new Set<string>();
+
+        while ((match = rowRegex.exec(html)) !== null && results.length < 8) {
+            const url = match[1].replace(/&amp;/g, "&").replace(/&#39;/g, "'");
+            const title = match[2].replace(/<[^>]+>/g, "").trim();
+            if (url && title && !seen.has(url) && !url.includes("duckduckgo.com")) {
+                seen.add(url);
+                results.push({ title, snippet: "", url });
+            }
         }
-    }
 
-    const snippetRegex = /<td[^>]*class="result-snippet"[^>]*>([\s\S]*?)<\/td>/gi;
-    const snippets: string[] = [];
-    let smatch: RegExpExecArray | null;
-    while ((smatch = snippetRegex.exec(html)) !== null && snippets.length < 8) {
-        snippets.push(smatch[1].replace(/<[^>]+>/g, "").trim());
-    }
-
-    for (let i = 0; i < results.length; i++) {
-        if (snippets[i]) {
-            results[i].snippet = snippets[i];
+        const snippetRegex = /<td[^>]*class="result-snippet"[^>]*>([\s\S]*?)<\/td>/gi;
+        const snippets: string[] = [];
+        let smatch: RegExpExecArray | null;
+        while ((smatch = snippetRegex.exec(html)) !== null && snippets.length < 8) {
+            snippets.push(smatch[1].replace(/<[^>]+>/g, "").trim());
         }
-    }
 
-    return results;
+        for (let i = 0; i < results.length; i++) {
+            if (snippets[i]) {
+                results[i].snippet = snippets[i];
+            }
+        }
+
+        return results;
+    } catch {
+        return [];
+    }
 }
 
 async function ddgInstantSearch(query: string) {
-    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
-    const response = await fetch(url, {
-        headers: { "User-Agent": "Mozilla/5.0" },
-        signal: AbortSignal.timeout(8000),
-    });
-    if (!response.ok) return [];
-
-    const data = await response.json() as {
-        AbstractText?: string;
-        AbstractURL?: string;
-        AbstractSource?: string;
-        RelatedTopics?: Array<{ Text?: string; FirstURL?: string }>;
-        Results?: Array<{ Text?: string; FirstURL?: string }>;
-    };
-
-    const results: Array<{ title: string; snippet: string; url: string }> = [];
-
-    if (data.AbstractText) {
-        results.push({
-            title: data.AbstractSource || "DuckDuckGo",
-            snippet: data.AbstractText.slice(0, 500),
-            url: data.AbstractURL || "",
+    try {
+        const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+        const response = await fetch(url, {
+            headers: { "User-Agent": "Mozilla/5.0" },
+            signal: AbortSignal.timeout(8000),
         });
-    }
+        if (!response.ok) return [];
 
-    for (const topic of data.RelatedTopics || []) {
-        if (topic.Text && topic.FirstURL && results.length < 5) {
+        const text = await response.text();
+        if (!text || text.length < 10) return [];
+
+        const data = JSON.parse(text) as {
+            AbstractText?: string;
+            AbstractURL?: string;
+            AbstractSource?: string;
+            RelatedTopics?: Array<{ Text?: string; FirstURL?: string }>;
+            Results?: Array<{ Text?: string; FirstURL?: string }>;
+        };
+
+        const results: Array<{ title: string; snippet: string; url: string }> = [];
+
+        if (data.AbstractText) {
             results.push({
-                title: topic.Text.slice(0, 80),
-                snippet: topic.Text.slice(0, 500),
-                url: topic.FirstURL,
+                title: data.AbstractSource || "DuckDuckGo",
+                snippet: data.AbstractText.slice(0, 500),
+                url: data.AbstractURL || "",
             });
         }
-    }
 
-    return results;
+        for (const topic of data.RelatedTopics || []) {
+            if (topic.Text && topic.FirstURL && results.length < 5) {
+                results.push({
+                    title: topic.Text.slice(0, 80),
+                    snippet: topic.Text.slice(0, 500),
+                    url: topic.FirstURL,
+                });
+            }
+        }
+
+        return results;
+    } catch {
+        return [];
+    }
 }
 
 export async function POST(req: NextRequest) {

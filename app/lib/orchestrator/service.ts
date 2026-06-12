@@ -81,7 +81,12 @@ function needsWebSearch(message: string) {
 
 async function performWebSearch(query: string): Promise<Array<{ type: "web"; label: string; content: string; score: number }>> {
     try {
-        const res = await fetch("/api/web-search", {
+        const baseUrl = process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
+            : process.env.NEXT_PUBLIC_VERCEL_URL
+              ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
+              : "http://localhost:3000";
+        const res = await fetch(`${baseUrl}/api/web-search`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ query }),
