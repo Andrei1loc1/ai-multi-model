@@ -1,5 +1,4 @@
 import * as crypto from "crypto";
-import { getTextExtractor } from "office-text-extractor";
 import { getSupabaseServerClient } from "@/app/lib/database/supabase";
 import type { DocumentAssetRecord } from "@/app/lib/database/supabase";
 import type {
@@ -44,6 +43,16 @@ function extensionForMimeType(mimeType: string) {
     return MIME_TO_EXTENSION[mimeType] || `.${mimeType.split("/")[1] || "bin"}`;
 }
 
+async function extractWithOfficeExtractor(buffer: Buffer): Promise<string | null> {
+    try {
+        const { getTextExtractor } = await import("office-text-extractor");
+        const extractor = getTextExtractor();
+        return await extractor.extractText({ input: buffer, type: "buffer" });
+    } catch {
+        return null;
+    }
+}
+
 async function callOcrService(buffer: Buffer, fileName: string): Promise<string> {
     try {
         const formData = new FormData();
@@ -82,33 +91,26 @@ async function convertBufferToMarkdown(buffer: Buffer, mimeType: string, fileNam
             return ocrText.slice(0, MAX_CHARS);
         }
 
-        try {
-            const extractor = getTextExtractor();
-            const text = await extractor.extractText({ input: buffer, type: "buffer" });
-            if (text && text.trim()) {
-                return text.slice(0, MAX_CHARS);
-            }
-        } catch {}
+        const officeText = await extractWithOfficeExtractor(buffer);
+        if (officeText?.trim()) {
+            return officeText.slice(0, MAX_CHARS);
+        }
 
         return "[PDF content could not be extracted. The file may be empty or corrupted.]";
     }
 
-    try {
-        const extractor = getTextExtractor();
-        const text = await extractor.extractText({ input: buffer, type: "buffer" });
-        if (!text || !text.trim()) {
-            return "[Document content could not be extracted. The file may be empty or image-based.]";
-        }
-        return text.slice(0, MAX_CHARS);
-    } catch {
-        if (mimeType === "text/html") {
-            return buffer.toString("utf-8").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_CHARS);
-        }
-        if (mimeType.startsWith("text/")) {
-            return buffer.toString("utf-8").slice(0, MAX_CHARS);
-        }
-        return "[Document content could not be extracted. The file format may not be supported.]";
+    const officeText = await extractWithOfficeExtractor(buffer);
+    if (officeText?.trim()) {
+        return officeText.slice(0, MAX_CHARS);
     }
+
+    if (mimeType === "text/html") {
+        return buffer.toString("utf-8").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_CHARS);
+    }
+    if (mimeType.startsWith("text/")) {
+        return buffer.toString("utf-8").slice(0, MAX_CHARS);
+    }
+    return "[Document content could not be extracted. The file format may not be supported.]";
 }
 
 async function ensureDocumentBucket() {
