@@ -1,0 +1,9 @@
+import VoiceUI from "./VoiceUI";
+
+export default function VoicePage() {
+    return (
+        <div className="min-h-dvh overflow-x-clip bg-gray-900 bg-[linear-gradient(135deg,#0f0f23_0%,#1e293b_20%,#312e81_40%,#1e1b4b_60%,#0f172a_80%,#1e293b_100%)]">
+            <VoiceUI />
+        </div>
+    );
+}

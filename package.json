@@ -10,11 +10,13 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.74",
+    "@mozilla/readability": "^0.6.0",
     "@supabase/supabase-js": "^2.101.1",
     "@tailwindcss/typography": "^0.5.19",
     "ai": "^5.0.104",
     "axios": "^1.13.2",
     "firebase": "^12.6.0",
+    "jsdom": "^29.1.1",
     "katex": "^0.16.25",
     "lucide-react": "^0.555.0",
     "markitdown-ts": "^0.0.10",

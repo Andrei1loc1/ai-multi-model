@@ -4,10 +4,9 @@ import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, use
 import {
     ChevronDown,
     FileText,
-    FolderPlus,
     GitBranchPlus,
+    Globe,
     Plus,
-    RefreshCcw,
     ImagePlus,
     Send,
     ShieldCheck,
@@ -19,6 +18,7 @@ import ImageAttachmentStrip, {
     type ChatImageAttachmentPreview,
 } from "@/app/components/Chat/ImageAttachmentStrip";
 import SettingsDropdown from "@/app/components/Chat/SettingsDropdown";
+import SoulSelector from "@/app/components/Chat/SoulSelector";
 import type { ConversationMessageItem } from "@/app/components/Chat/ConversationThread";
 import SaveResponseModal from "@/app/components/modals/SaveResponseModal";
 import AgentActivityPanel from "@/app/components/Workspace/AgentActivityPanel";
@@ -274,6 +274,7 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
         mimeType: string | null;
     }>>([]);
     const [showAttachPopup, setShowAttachPopup] = useState(false);
+    const [webSearchEnabled, setWebSearchEnabled] = useState(false);
     const pythonRuntimeRef = useRef<PythonRuntimeSession | null>(null);
     const agentRunEventSourceRef = useRef<EventSource | null>(null);
     const activeAgentRunRef = useRef<AgentRunSnapshot | null>(null);
@@ -1382,6 +1383,7 @@ const sendMessage = async () => {
                             allowMemory: true,
                             allowRepo: true,
                             allowNotes: true,
+                            enableWebSearch: webSearchEnabled,
                             executionMode,
                         },
                         stream: true,
@@ -1547,6 +1549,7 @@ const sendMessage = async () => {
                         allowMemory: true,
                         allowRepo: true,
                         allowNotes: true,
+                        enableWebSearch: webSearchEnabled,
                         executionMode,
                     },
                 }),
@@ -1831,34 +1834,22 @@ const sendMessage = async () => {
 
                             <div className="mx-1 h-4 w-px bg-white/8" />
 
+                            {mode === "chat" && (
+                                <SoulSelector
+                                    soul={soul}
+                                    setSoul={setSoul}
+                                />
+                            )}
+
                             <SettingsDropdown
                                 selectedProvider={selectedProvider}
                                 setSelectedProvider={setSelectedProvider}
                                 selectedModel={selectedModel}
                                 setSelectedModel={setSelectedModel}
-                                soul={soul}
-                                setSoul={setSoul}
-                                showSoul={mode === "chat"}
+                                onConnectRepo={() => { setShowAttachPanel((value) => !value); setShowMobileControls(true); }}
+                                onReindexRepo={reindexRepo}
+                                showRepoActions={!!selectedWorkspaceId}
                             />
-
-                            <button
-                                onClick={() => {
-                                    setShowAttachPanel((value) => !value);
-                                    setShowMobileControls(true);
-                                }}
-                                className="inline-flex h-7 items-center justify-center gap-1.5 rounded-xl border border-white/8 bg-slate-950/75 px-2.5 text-[11px] text-white transition hover:border-cyan-300/20 hover:bg-slate-900/85"
-                            >
-                                <FolderPlus size={13} />
-                                <span className="hidden sm:inline">Attach</span>
-                            </button>
-
-                            <button
-                                onClick={reindexRepo}
-                                className="inline-flex h-7 items-center justify-center gap-1.5 rounded-xl border border-white/8 bg-slate-950/75 px-2.5 text-[11px] text-white transition hover:border-cyan-300/20 hover:bg-slate-900/85"
-                            >
-                                <RefreshCcw size={13} />
-                                <span className="hidden sm:inline">Reindex</span>
-                            </button>
 
                             {result?.modelUsed?.id && (
                                 <span className="rounded-full border border-white/8 bg-slate-950/55 px-2 py-0.5 text-[10px] text-slate-400">
@@ -2061,6 +2052,20 @@ const sendMessage = async () => {
                                             </div>
                                         )}
                                     </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setWebSearchEnabled((v) => !v)}
+                                        title={webSearchEnabled ? "Web search enabled" : "Enable web search"}
+                                        className={`inline-flex h-[42px] shrink-0 items-center justify-center gap-1.5 rounded-[14px] border px-2.5 text-sm font-medium transition sm:h-[46px] sm:px-3 ${
+                                            webSearchEnabled
+                                                ? "border-cyan-300/30 bg-cyan-300/[0.12] text-cyan-300 hover:bg-cyan-300/[0.18]"
+                                                : "border-white/8 bg-white/[0.03] text-slate-400 hover:border-cyan-300/20 hover:bg-white/[0.06] hover:text-slate-300"
+                                        }`}
+                                    >
+                                        <Globe size={16} />
+                                        <span className="hidden sm:inline text-[11px]">{webSearchEnabled ? "Web: ON" : "Web"}</span>
+                                    </button>
 
                                     <textarea
                                         value={input}

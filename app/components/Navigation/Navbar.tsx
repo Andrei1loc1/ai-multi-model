@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, MessageSquare, Code2 } from "lucide-react";
+import { BookOpen, MessageSquare, Mic } from "lucide-react";
 
 const navItems = [
     { route: "/chat", title: "Chat", icon: MessageSquare },
+    { route: "/voice", title: "Voice", icon: Mic },
     { route: "/notes", title: "Notes", icon: BookOpen },
-    { route: "/generateAPI", title: "API", icon: Code2 },
 ];
 
 export default function Navbar() {

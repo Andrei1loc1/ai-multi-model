@@ -41,6 +41,19 @@ yarn-error.log*
 __pycache__/
 *.pyc
 
+# piper tts models
+tts-service/models/
+
+# debug scripts
+debug_*.py
+find_*.py
+fix_*.py
+list_*.py
+
+# graphify output
+graphify-out/
+.understand-anything/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

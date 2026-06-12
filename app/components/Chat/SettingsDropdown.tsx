@@ -1,27 +1,25 @@
 import React, { useState, useRef, useEffect } from "react";
-import { ChevronDown, Settings2 } from "lucide-react";
+import { ChevronDown, Settings2, FolderPlus, RefreshCcw } from "lucide-react";
 import { getModelsForProvider, type ProviderFilter } from "@/app/lib/AImodels/models";
 import ModelSelector from "@/app/components/Chat/ModelSelector";
 import ProviderSelector from "@/app/components/Chat/ProviderSelector";
-import SoulSelector from "@/app/components/Chat/SoulSelector";
-import type { SoulType } from "@/app/lib/workspaces/types";
 
 const SettingsDropdown = ({
     selectedProvider,
     setSelectedProvider,
     selectedModel,
     setSelectedModel,
-    soul,
-    setSoul,
-    showSoul,
+    onConnectRepo,
+    onReindexRepo,
+    showRepoActions,
 }: {
     selectedProvider: ProviderFilter;
     setSelectedProvider: (p: ProviderFilter) => void;
     selectedModel: string;
     setSelectedModel: (m: string) => void;
-    soul: SoulType;
-    setSoul: (s: SoulType) => void;
-    showSoul: boolean;
+    onConnectRepo?: () => void;
+    onReindexRepo?: () => void;
+    showRepoActions?: boolean;
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
@@ -65,14 +63,28 @@ const SettingsDropdown = ({
                                 selectedProvider={selectedProvider}
                             />
                         </div>
-                        {showSoul && (
-                            <div>
-                                <label className="mb-1 block text-[10px] uppercase tracking-[0.24em] text-slate-500">Soul</label>
-                                <SoulSelector
-                                    soul={soul}
-                                    setSoul={setSoul}
-                                />
-                            </div>
+                        {showRepoActions && (
+                            <>
+                                <div className="border-t border-white/6 pt-3">
+                                    <label className="mb-1 block text-[10px] uppercase tracking-[0.24em] text-slate-500">Repository</label>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => { onConnectRepo?.(); setIsOpen(false); }}
+                                            className="flex-1 inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border border-white/8 bg-white/[0.04] text-[11px] text-white transition hover:border-cyan-300/20 hover:bg-white/[0.08]"
+                                        >
+                                            <FolderPlus size={12} />
+                                            Connect
+                                        </button>
+                                        <button
+                                            onClick={() => { onReindexRepo?.(); setIsOpen(false); }}
+                                            className="flex-1 inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border border-white/8 bg-white/[0.04] text-[11px] text-white transition hover:border-cyan-300/20 hover:bg-white/[0.08]"
+                                        >
+                                            <RefreshCcw size={12} />
+                                            Reindex
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
                         )}
                     </div>
                 </div>

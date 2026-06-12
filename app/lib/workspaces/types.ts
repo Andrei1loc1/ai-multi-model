@@ -19,7 +19,7 @@ export type TaskType =
     | "search"
     | "plan";
 
-export type SoulType = "default" | "concise" | "tutor" | "challenger" | "creative";
+export type SoulType = "default" | "voice" | "concise" | "simple" | "tutor" | "challenger" | "creative";
 
 export type AgentArtifact = {
     understanding: string;
@@ -115,6 +115,12 @@ export type ContextSource =
       }
     | {
           type: "document";
+          label: string;
+          content: string;
+          score: number;
+      }
+    | {
+          type: "web";
           label: string;
           content: string;
           score: number;
@@ -242,6 +248,7 @@ export type OrchestratorCapabilities = {
     allowMemory?: boolean;
     allowRepo?: boolean;
     allowNotes?: boolean;
+    enableWebSearch?: boolean;
     executionMode?: AgentExecutionMode;
     agentRunId?: string | null;
 };

@@ -73,6 +73,122 @@ function isImageFocusedRequest(message: string) {
     );
 }
 
+function needsWebSearch(message: string) {
+    return /(temperatur[aeăâ]|vremea|meteo|prognoz[ăa]|[sș]tiri|news|pre[țt]|price|curs valutar|exchange rate|covid|alegeri|election|rezultat|score|live|actual|current|today|azi|acum|recent|latest|c[aăâ]t|how much|how many|c[aăâ]nd|when is|ce mai|what happened|stock|burs[ăa]|crypto|bitcoin|vreme|ploaie|soare|ninsoare|umiditate|vent|wind|grade|celsius|fahrenheit|forecast|weather|climate|infla[țt]ie|șomaj|pi[aăâ]t[aăâ]|GDP|populatie|popula[țt]ie|c[aăâ]s[cș]torit[cș]|accident|incident|protest|greva|strike|cutremur|earthquake|foc|incendiu|war|r[zăa]boi|conflict|pandemic|epidemic|outbreak|meci|match|game|rezultat|scor|transfer|semnat|contract|lansat|released|announced|update|patch|versiune|version)/i.test(
+        message
+    );
+}
+
+async function performWebSearch(query: string): Promise<Array<{ type: "web"; label: string; content: string; score: number }>> {
+    try {
+        const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+        const searchResponse = await fetch(searchUrl, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "ro-RO,ro;q=0.9,en-US;q=0.8,en;q=0.7",
+            },
+        });
+        if (!searchResponse.ok) return [];
+        const searchHtml = await searchResponse.text();
+
+        const entries: Array<{ url: string; title: string; snippet: string }> = [];
+        const resultRegex = /<a rel="nofollow" class="result__a" href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+        const snippetRegex = /<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+
+        let match: RegExpExecArray | null;
+        while ((match = resultRegex.exec(searchHtml)) !== null && entries.length < 5) {
+            const rawUrl = match[1];
+            const title = match[2].replace(/<[^>]+>/g, "").trim();
+            const urlMatch = rawUrl.match(/uddg=([^&]+)/);
+            const decodedUrl = urlMatch ? decodeURIComponent(urlMatch[1]) : rawUrl;
+            if (title && decodedUrl) {
+                entries.push({ url: decodedUrl, title, snippet: "" });
+            }
+        }
+
+        let si = 0;
+        while ((match = snippetRegex.exec(searchHtml)) !== null && si < 5) {
+            if (entries[si]) {
+                entries[si].snippet = match[1].replace(/<[^>]+>/g, "").trim();
+            }
+            si++;
+        }
+
+        const results: Array<{ type: "web"; label: string; content: string; score: number }> = [];
+
+        const pagesToFetch = Math.min(3, entries.length);
+        const fetchPromises = entries.slice(0, pagesToFetch).map(async (entry) => {
+            try {
+                const pageResponse = await fetch(entry.url, {
+                    headers: {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                        "Accept": "text/html",
+                    },
+                    signal: AbortSignal.timeout(5000),
+                });
+                if (!pageResponse.ok) return null;
+                const pageHtml = await pageResponse.text();
+
+                const titleMatch = pageHtml.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+                const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, "").trim() : entry.title;
+
+                const bodyMatch = pageHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+                const bodyContent = bodyMatch ? bodyMatch[1] : pageHtml;
+                const cleanText = bodyContent
+                    .replace(/<script[\s\S]*?<\/script>/gi, "")
+                    .replace(/<style[\s\S]*?<\/style>/gi, "")
+                    .replace(/<nav[\s\S]*?<\/nav>/gi, "")
+                    .replace(/<footer[\s\S]*?<\/footer>/gi, "")
+                    .replace(/<header[\s\S]*?<\/header>/gi, "")
+                    .replace(/<[^>]+>/g, " ")
+                    .replace(/&nbsp;/g, " ")
+                    .replace(/&amp;/g, "&")
+                    .replace(/&lt;/g, "<")
+                    .replace(/&gt;/g, ">")
+                    .replace(/&quot;/g, '"')
+                    .replace(/\s+/g, " ")
+                    .trim();
+
+                const MAX_CONTENT = 1500;
+                const truncated = cleanText.length > MAX_CONTENT
+                    ? cleanText.slice(0, MAX_CONTENT) + "..."
+                    : cleanText;
+
+                return { title, content: truncated, url: entry.url };
+            } catch {
+                return null;
+            }
+        });
+
+        const pageResults = await Promise.all(fetchPromises);
+
+        for (let i = 0; i < entries.length; i++) {
+            const entry = entries[i];
+            const pageResult = pageResults[i];
+            if (pageResult) {
+                results.push({
+                    type: "web",
+                    label: pageResult.title,
+                    content: `${pageResult.content} [Source: ${pageResult.url}]`,
+                    score: 1 - i * 0.1,
+                });
+            } else {
+                results.push({
+                    type: "web",
+                    label: entry.title,
+                    content: `${entry.snippet || entry.title} [Source: ${entry.url}]`,
+                    score: 1 - i * 0.1,
+                });
+            }
+        }
+
+        return results;
+    } catch {
+        return [];
+    }
+}
+
 async function getRelevantNotes(query: string) {
     const notes = await listNotes().catch(() => []);
     return uniqueTopByScore(
@@ -782,7 +898,8 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
 
     const repoConnection = input.workspaceId ? await getWorkspaceRepoConnection(input.workspaceId) : null;
     const documentAttachments = input.attachments?.filter((a): a is Extract<typeof a, { type: "document" }> => a.type === "document") || [];
-    const [recentMessages, memoryEntries, repoContext, noteContext, imagePayload, documentPayload, existingVirtualProject] = await Promise.all([
+    const shouldWebSearch = input.capabilities?.enableWebSearch === true || needsWebSearch(input.message);
+    const [recentMessages, memoryEntries, repoContext, noteContext, imagePayload, documentPayload, existingVirtualProject, webResults] = await Promise.all([
         getConversationMessages(conversation.id, 8),
         input.capabilities?.allowMemory === false
             ? Promise.resolve([])
@@ -806,6 +923,9 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
         input.mode === "agent"
             ? getLatestConversationVirtualProject(conversation.id).catch(() => null)
             : Promise.resolve(null),
+        shouldWebSearch
+            ? performWebSearch(input.message)
+            : Promise.resolve([]),
     ]);
     const wantsVirtualProject =
         input.mode === "agent" &&
@@ -828,6 +948,7 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
         ...imagePayload.contextSources,
         ...documentPayload.contextSources,
         ...noteContext,
+        ...webResults,
     ].sort((a, b) => b.score - a.score);
 
     const contextBudget = taskType === "coding" ? 12 : 8;
@@ -890,6 +1011,9 @@ Use markdown headers (##) for each section. Include file paths in code block hea
         existingVirtualProject
             ? "A virtual project already exists for this conversation. Keep the user-facing chat answer concise, describe only the key edit outcome, and do not include code blocks."
             : "If you provide code in the answer, keep it focused and only when needed.",
+        shouldWebSearch && webResults.length
+            ? "IMPORTANT: Live web search results are provided below under 'Web search results:'. You MUST use this data to answer the user's question. Do NOT say you cannot access real-time information — the web data IS available to you. Reference the source titles when citing facts."
+            : "",
     ].join("\n");
 
     const prompt = [
@@ -907,6 +1031,8 @@ Use markdown headers (##) for each section. Include file paths in code block hea
         composeContextBlock("Document context:", selectedSources.filter((source) => source.type === "document")),
         "",
         composeContextBlock("Useful notes:", selectedSources.filter((source) => source.type === "note")),
+        "",
+        composeContextBlock("Web search results:", selectedSources.filter((source) => source.type === "web")),
     ]
         .filter(Boolean)
         .join("\n");
