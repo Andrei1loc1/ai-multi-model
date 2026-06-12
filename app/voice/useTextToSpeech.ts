@@ -63,7 +63,7 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
             window.speechSynthesis.onvoiceschanged = loadVoices;
         }
 
-        fetch("/api/tts").then((r) => {
+        fetch("/api/tts", { signal: AbortSignal.timeout(5000) }).then((r) => {
             if (r.ok) {
                 piperAvailableRef.current = true;
                 setUsingPiper(true);
@@ -86,52 +86,6 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
                 audioRef.current = null;
             }
         };
-    }, []);
-
-    const speakWithPiper = useCallback(async (text: string) => {
-        cancelledRef.current = false;
-        setIsSpeaking(true);
-
-        try {
-            const response = await fetch("/api/tts", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text }),
-            });
-
-            if (!response.ok) {
-                setIsSpeaking(false);
-                return;
-            }
-
-            const audioBlob = await response.blob();
-            const audioUrl = URL.createObjectURL(audioBlob);
-
-            const audio = new Audio(audioUrl);
-            audioRef.current = audio;
-
-            audio.onended = () => {
-                URL.revokeObjectURL(audioUrl);
-                audioRef.current = null;
-                if (!cancelledRef.current) {
-                    setIsSpeaking(false);
-                }
-            };
-
-            audio.onerror = () => {
-                URL.revokeObjectURL(audioUrl);
-                audioRef.current = null;
-                if (!cancelledRef.current) {
-                    setIsSpeaking(false);
-                }
-            };
-
-            await audio.play();
-        } catch {
-            if (!cancelledRef.current) {
-                setIsSpeaking(false);
-            }
-        }
     }, []);
 
     const speakWithBrowser = useCallback((text: string) => {
@@ -183,6 +137,67 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
 
         speakNext();
     }, []);
+
+    const speakWithPiper = useCallback(async (text: string) => {
+        cancelledRef.current = false;
+        setIsSpeaking(true);
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+            const response = await fetch("/api/tts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text }),
+                signal: controller.signal,
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                console.warn("Piper TTS failed, falling back to browser speech");
+                setIsSpeaking(false);
+                speakWithBrowser(text);
+                return;
+            }
+
+            const audioBlob = await response.blob();
+
+            if (cancelledRef.current) {
+                setIsSpeaking(false);
+                return;
+            }
+
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            audioRef.current = audio;
+
+            audio.onended = () => {
+                URL.revokeObjectURL(audioUrl);
+                audioRef.current = null;
+                if (!cancelledRef.current) {
+                    setIsSpeaking(false);
+                }
+            };
+
+            audio.onerror = () => {
+                URL.revokeObjectURL(audioUrl);
+                audioRef.current = null;
+                if (!cancelledRef.current) {
+                    setIsSpeaking(false);
+                }
+            };
+
+            await audio.play();
+        } catch {
+            if (!cancelledRef.current) {
+                console.warn("Piper TTS error, falling back to browser speech");
+                setIsSpeaking(false);
+                speakWithBrowser(text);
+            }
+        }
+    }, [speakWithBrowser]);
 
     const speak = useCallback((text: string) => {
         if (piperAvailableRef.current) {
