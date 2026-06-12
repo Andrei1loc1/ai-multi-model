@@ -857,25 +857,25 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
         souls[input.soul || "default"].promptPrefix,
         input.mode === "agent"
             ? `Agent mode: build complete multi-file projects. Use Tailwind CSS, separate files, TypeScript types, error handling. Modify only what needs changing.`
-            : "Chat mode. Be clear and useful.",
-        "No tools or filesystem access. Never emit tool-call markup or XML.",
+            : "Chat mode. Be clear, structured, and helpful.",
+        "You do not have tools or filesystem access. Never emit tool-call markup or XML invocations.",
         taskType === "coding"
-            ? `Return structured: ## Understanding, ## Files Used, ## Proposed Changes, ## Code (with \`\`\`lang:path\`\`\` headers), ## Risks, ## Next Step.`
+            ? `Structure coding responses with: ## Understanding, ## Files Used, ## Proposed Changes, ## Code (\`\`\`lang:path headers\`\`\`), ## Risks, ## Next Step.`
             : "",
         imagePayload.contextSources.length
             ? "Image attachments were pre-analyzed. Use the provided image context as trusted visual evidence."
             : "",
         imageFocusedRequest
-            ? "Focus on the image. Do not bring in unrelated context."
+            ? "The user is asking about an image. Keep the answer grounded in the image context."
             : "",
         repoConnection
-            ? "A repo is connected. Use only the context provided below."
+            ? "A repo is connected. Use only the context explicitly provided below."
             : "",
         recentMessages.length
-            ? "Continue the conversation. Resolve references like 'it', 'that' from the thread below."
+            ? "This is a continuing conversation. Resolve references like 'it', 'that', 'there' from the thread below."
             : "",
         existingVirtualProject
-            ? "A virtual project exists. Keep the answer concise, describe the edit outcome only."
+            ? "A virtual project exists. Keep the answer concise — describe the key edit outcome, skip code blocks in chat."
             : "",
     ].filter(Boolean).join("\n");
 

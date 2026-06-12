@@ -19,7 +19,12 @@ export type SoulConfig = {
     temperature: number;
 };
 
-const FORMAT_INSTRUCTION = `Use structured markdown: "Important:" for key points, "Warning:" for risks, "Note:" for side notes, "Next step:" for follow-ups, numbered lists for steps, bullets for key points, **Heading**: for sections, > for quotes.`;
+const FORMAT_INSTRUCTION = `Use rich markdown for structured answers:
+- "Important:" → highlighted card | "Warning:" → warning card | "Note:" → note card
+- "Next step:" → action card | "Recommendation:" → tip card
+- Numbered lists → step cards | Bullet lists → key point cards
+- **Heading**: → section divider | > blockquote → editorial quote
+Start with a short summary paragraph when the answer is substantive.`;
 
 export const souls: Record<SoulType, SoulConfig> = {
     default: {
