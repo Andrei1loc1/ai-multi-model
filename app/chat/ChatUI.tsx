@@ -1397,6 +1397,22 @@ const sendMessage = async () => {
                 const decoder = new TextDecoder();
                 let streamedContent = "";
                 let fullResponse: OrchestrateChatOutput | null = null;
+                let streamingRafId: number | null = null;
+                let streamingDirty = false;
+
+                const flushStream = () => {
+                    streamingRafId = null;
+                    if (streamingDirty) {
+                        streamingDirty = false;
+                        setMessages((current) =>
+                            current.map((msg) =>
+                                msg.id === tempAssistantId
+                                    ? { ...msg, content: streamedContent }
+                                    : msg
+                            )
+                        );
+                    }
+                };
 
                 if (!reader) {
                     throw new Error("Response body is not readable.");
@@ -1421,13 +1437,10 @@ const sendMessage = async () => {
                             const parsed = JSON.parse(dataStr);
                             if (parsed.content) {
                                 streamedContent += parsed.content;
-                                setMessages((current) =>
-                                    current.map((msg) =>
-                                        msg.id === tempAssistantId
-                                            ? { ...msg, content: streamedContent }
-                                            : msg
-                                    )
-                                );
+                                streamingDirty = true;
+                                if (!streamingRafId) {
+                                    streamingRafId = requestAnimationFrame(flushStream);
+                                }
                             }
                             if (parsed.answer !== undefined || parsed.modelUsed) {
                                 fullResponse = parsed as OrchestrateChatOutput;
@@ -1435,17 +1448,25 @@ const sendMessage = async () => {
                         } catch {
                             if (dataStr.trim()) {
                                 streamedContent += dataStr;
-                                setMessages((current) =>
-                                    current.map((msg) =>
-                                        msg.id === tempAssistantId
-                                            ? { ...msg, content: streamedContent }
-                                            : msg
-                                    )
-                                );
+                                streamingDirty = true;
+                                if (!streamingRafId) {
+                                    streamingRafId = requestAnimationFrame(flushStream);
+                                }
                             }
                         }
                     }
                 }
+
+                if (streamingRafId) {
+                    cancelAnimationFrame(streamingRafId);
+                }
+                setMessages((current) =>
+                    current.map((msg) =>
+                        msg.id === tempAssistantId
+                            ? { ...msg, content: streamedContent }
+                            : msg
+                    )
+                );
 
                 setLoading(false);
 

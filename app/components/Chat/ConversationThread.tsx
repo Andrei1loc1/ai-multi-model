@@ -230,6 +230,14 @@ const MessageBubble = memo(function MessageBubble({
             </div>
         </div>
     );
+}, function areEqual(prev, next) {
+    if (prev.message.id !== next.message.id) return false;
+    if (prev.message.role !== next.message.role) return false;
+    if (prev.message.pending !== next.message.pending) return false;
+    if (prev.message.content !== next.message.content) return false;
+    if (prev.onSaveAssistantMessage !== next.onSaveAssistantMessage) return false;
+    if (prev.onOpenVirtualProject !== next.onOpenVirtualProject) return false;
+    return true;
 });
 
 export default function ConversationThread({
@@ -266,13 +274,19 @@ export default function ConversationThread({
         }
 
         const messageCountChanged = messages.length !== previousMessageCountRef.current;
-        const shouldScroll = shouldAutoScrollRef.current || messages[messages.length - 1]?.pending;
+        const isStreaming = messages[messages.length - 1]?.pending;
+        const shouldScroll = shouldAutoScrollRef.current || isStreaming;
 
         if (shouldScroll && messageCountChanged) {
             const behavior = previousMessageCountRef.current === 0 ? "auto" : "smooth";
             container.scrollTo({
                 top: container.scrollHeight,
                 behavior,
+            });
+        } else if (shouldScroll && isStreaming) {
+            container.scrollTo({
+                top: container.scrollHeight,
+                behavior: "auto",
             });
         }
 
