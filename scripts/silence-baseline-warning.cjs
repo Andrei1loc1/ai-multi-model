@@ -13,5 +13,9 @@ console.warn = (...args) => {
     return;
   }
 
+  if (message.includes("DeprecationWarning") && message.includes("url.parse")) {
+    return;
+  }
+
   originalWarn(...args);
 };
