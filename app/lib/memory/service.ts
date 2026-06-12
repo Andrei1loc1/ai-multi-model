@@ -107,7 +107,7 @@ export async function maybeRefreshConversationSummary(params: {
     repoConnectionId?: string | null;
 }) {
     const messages = await getConversationMessages(params.conversationId, 24);
-    if (!messages.length || messages.length % 4 !== 0) {
+    if (!messages.length || messages.length % 8 !== 0) {
         return null;
     }
 
