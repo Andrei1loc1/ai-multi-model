@@ -3,6 +3,9 @@
 import { lazy, memo, Suspense, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import { Check, Copy } from "lucide-react";
 
 const SyntaxHighlighter = lazy(() =>
@@ -112,6 +115,8 @@ function MarkdownContent({
     content: string;
     className?: string;
 }) {
+    const hasMath = useMemo(() => /\$[^$]+\$|\$\$[^$]+\$\$|\\\(|\\\[|\\begin\{/.test(content), [content]);
+
     const components = useMemo(
         () => ({
             code({ className: codeClassName, children, ...props }: any) {
@@ -219,7 +224,8 @@ function MarkdownContent({
         <div className={`response-markdown ${className}`.trim()}>
             <ReactMarkdown
                 components={components}
-                remarkPlugins={[remarkGfm]}
+                remarkPlugins={hasMath ? [remarkGfm, remarkMath] : [remarkGfm]}
+                rehypePlugins={hasMath ? [[rehypeKatex, { throwOnError: false, output: "html" }]] : undefined}
             >
                 {content}
             </ReactMarkdown>
