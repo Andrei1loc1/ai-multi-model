@@ -81,6 +81,104 @@ function needsWebSearch(message: string) {
 
 async function performWebSearch(query: string): Promise<Array<{ type: "web"; label: string; content: string; score: number }>> {
     try {
+        const results = await ddgInstantSearch(query);
+        if (results.length > 0) return results;
+    } catch (e) {
+        console.error("DDG Instant search failed:", e);
+    }
+
+    try {
+        const results = await searxngSearch(query);
+        if (results.length > 0) return results;
+    } catch (e) {
+        console.error("SearXNG search failed:", e);
+    }
+
+    try {
+        const results = await ddgHtmlSearch(query);
+        if (results.length > 0) return results;
+    } catch (e) {
+        console.error("DDG HTML search failed:", e);
+    }
+
+    return [];
+}
+
+async function ddgInstantSearch(query: string): Promise<Array<{ type: "web"; label: string; content: string; score: number }>> {
+    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+    const response = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) return [];
+
+    const data = await response.json() as {
+        AbstractText?: string;
+        AbstractURL?: string;
+        AbstractSource?: string;
+        RelatedTopics?: Array<{ Text?: string; FirstURL?: string; Result?: string }>;
+        Results?: Array<{ Text?: string; FirstURL?: string; Result?: string }>;
+    };
+
+    const results: Array<{ type: "web"; label: string; content: string; score: number }> = [];
+
+    if (data.AbstractText) {
+        results.push({
+            type: "web",
+            label: data.AbstractSource || "DuckDuckGo",
+            content: data.AbstractText.slice(0, 1500),
+            score: 100,
+        });
+    }
+
+    for (const topic of data.RelatedTopics || []) {
+        if (topic.Text && topic.FirstURL && results.length < 5) {
+            results.push({
+                type: "web",
+                label: topic.Text.slice(0, 80),
+                content: topic.Text.slice(0, 1500),
+                score: 90 - results.length * 5,
+            });
+        }
+    }
+
+    return results;
+}
+
+async function searxngSearch(query: string): Promise<Array<{ type: "web"; label: string; content: string; score: number }>> {
+    const instances = [
+        "https://search.sapti.me",
+        "https://searx.be",
+        "https://search.bus-hit.me",
+    ];
+
+    for (const instance of instances) {
+        try {
+            const url = `${instance}/search?q=${encodeURIComponent(query)}&format=json&categories=general&language=ro`;
+            const response = await fetch(url, {
+                headers: { "User-Agent": "Mozilla/5.0" },
+                signal: AbortSignal.timeout(8000),
+            });
+            if (!response.ok) continue;
+
+            const data = await response.json() as { results?: Array<{ title?: string; url?: string; content?: string }> };
+            if (!data.results?.length) continue;
+
+            return data.results.slice(0, 5).map((r, i) => ({
+                type: "web" as const,
+                label: r.title || "Web result",
+                content: (r.content || "").slice(0, 1500),
+                score: 95 - i * 5,
+            }));
+        } catch {
+            continue;
+        }
+    }
+    return [];
+}
+
+async function ddgHtmlSearch(query: string): Promise<Array<{ type: "web"; label: string; content: string; score: number }>> {
+    try {
         const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
         const searchResponse = await fetch(searchUrl, {
             headers: {
@@ -88,6 +186,7 @@ async function performWebSearch(query: string): Promise<Array<{ type: "web"; lab
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "ro-RO,ro;q=0.9,en-US;q=0.8,en;q=0.7",
             },
+            signal: AbortSignal.timeout(10000),
         });
         if (!searchResponse.ok) return [];
         const searchHtml = await searchResponse.text();
