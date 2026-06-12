@@ -441,7 +441,7 @@ async function requestVisionBundle(
                 }
             );
 
-            let text = "";
+            let text: string | Array<{ text?: string }> = "";
             if (response.data?.message?.content) {
                 text = response.data.message.content;
             } else if (response.data?.choices?.[0]?.message?.content) {

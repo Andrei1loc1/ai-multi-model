@@ -3,6 +3,8 @@ import { validateVirtualProjectPayload } from "@/app/lib/virtualProjects/validat
 import type { VirtualProjectPayload } from "@/app/lib/workspaces/types";
 
 const REACT_VERSION = "19.2.4";
+const REACT_CDN = `https://esm.sh/react@${REACT_VERSION}?dev`;
+const REACT_DOM_CLIENT_CDN = `https://esm.sh/react-dom/client@${REACT_VERSION}?dev`;
 
 // CDN pentru pachete externe - toate se încarcă via esm.sh
 function esmCdn(specifier: string, version?: string) {
