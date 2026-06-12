@@ -1498,6 +1498,14 @@ const sendMessage = async () => {
                         return;
                     }
 
+                    setMessages((current) =>
+                        current.map((msg) =>
+                            msg.id === tempAssistantId
+                                ? { ...msg, content: streamedContent, pending: false }
+                                : msg
+                        )
+                    );
+
                     await loadWorkspaceState();
                     if (fullResponse.agentRun?.id) {
                         await loadAgentRun(fullResponse.agentRun.id).catch(() => undefined);
@@ -1507,16 +1515,6 @@ const sendMessage = async () => {
                         setSelectedConversationId(fullResponse.conversationId);
                     }
 
-                    setMessages((current) => {
-                        const hasTempMessage = current.some((msg) => msg.id === tempAssistantId);
-                        if (hasTempMessage) {
-                            return current.map((msg) =>
-                                msg.id === tempAssistantId ? { ...msg, pending: false } : msg
-                            );
-                        }
-                        return current;
-                    });
-
                     if (fullResponse.virtualProject?.id) {
                         const refreshedProject = await loadVirtualProject(fullResponse.virtualProject.id, "overview");
                         if (refreshedProject && previousProjectId === refreshedProject.id) {
@@ -1525,6 +1523,7 @@ const sendMessage = async () => {
                         }
                     }
 
+                    await new Promise((resolve) => setTimeout(resolve, 300));
                     if (fullResponse.conversationId) {
                         await loadConversationThread(fullResponse.conversationId);
                     }
@@ -1582,6 +1581,14 @@ const sendMessage = async () => {
                 }
                 setStatusMessage(`Agent run ${data.agentRun.id} is running and streaming live updates.`);
             } else {
+                setMessages((current) =>
+                    current.map((msg) =>
+                        msg.id === tempAssistantId
+                            ? { ...msg, content: data.answer, pending: false, metadata: { ...msg.metadata, modelUsed: data.modelUsed, taskType: data.taskType, agent: data.agent, virtualProject: data.virtualProject, agentRun: data.agentRun } }
+                            : msg
+                    )
+                );
+
                 await loadWorkspaceState();
                 if (data.agentRun?.id) {
                     await loadAgentRun(data.agentRun.id).catch(() => undefined);
@@ -1599,6 +1606,7 @@ const sendMessage = async () => {
                     }
                 }
 
+                await new Promise((resolve) => setTimeout(resolve, 300));
                 if (data.conversationId) {
                     await loadConversationThread(data.conversationId);
                 }
