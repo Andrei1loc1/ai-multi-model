@@ -237,6 +237,8 @@ const MessageBubble = memo(function MessageBubble({
     if (prev.message.content !== next.message.content) return false;
     if (prev.onSaveAssistantMessage !== next.onSaveAssistantMessage) return false;
     if (prev.onOpenVirtualProject !== next.onOpenVirtualProject) return false;
+    if (prev.message.metadata?.taskType !== next.message.metadata?.taskType) return false;
+    if (prev.message.metadata?.modelUsed?.id !== next.message.metadata?.modelUsed?.id) return false;
     return true;
 });
 
@@ -255,16 +257,20 @@ export default function ConversationThread({
     const scrollContainerRef = useRef<HTMLDivElement | null>(null);
     const shouldAutoScrollRef = useRef(true);
     const previousMessageCountRef = useRef(0);
+    const scrollTickingRef = useRef(false);
 
     const updateAutoScrollPreference = useCallback(() => {
-        const container = scrollContainerRef.current;
-        if (!container) {
-            return;
-        }
-
-        const distanceFromBottom =
-            container.scrollHeight - container.scrollTop - container.clientHeight;
-        shouldAutoScrollRef.current = distanceFromBottom < 120;
+        if (scrollTickingRef.current) return;
+        scrollTickingRef.current = true;
+        requestAnimationFrame(() => {
+            const container = scrollContainerRef.current;
+            if (container) {
+                const distanceFromBottom =
+                    container.scrollHeight - container.scrollTop - container.clientHeight;
+                shouldAutoScrollRef.current = distanceFromBottom < 120;
+            }
+            scrollTickingRef.current = false;
+        });
     }, []);
 
     useEffect(() => {
@@ -313,16 +319,17 @@ export default function ConversationThread({
         <div
             ref={scrollContainerRef}
             onScroll={updateAutoScrollPreference}
-            className="message-card max-h-[calc(100vh-120px)] min-h-[320px] overflow-y-auto overflow-x-hidden rounded-[24px] border border-white/8 bg-[radial-gradient(circle_at_top,rgba(148,163,184,0.08),transparent_34%),linear-gradient(180deg,rgba(2,6,23,0.84),rgba(2,6,23,0.72))] p-2.5 shadow-[0_24px_80px_rgba(2,6,23,0.45)] sm:max-h-[calc(100vh-140px)] sm:min-h-[420px] sm:rounded-[30px] sm:p-3 md:p-4"
+            className="message-card max-h-[calc(100vh-120px)] min-h-[320px] overflow-y-auto overflow-x-hidden rounded-[24px] border border-white/8 bg-[radial-gradient(circle_at_top,rgba(148,163,184,0.08),transparent_34%),linear-gradient(180deg,rgba(2,6,23,0.84),rgba(2,6,23,0.72))] p-2.5 shadow-[0_24px_80px_rgba(2,6,23,0.45)] will-change-transform sm:max-h-[calc(100vh-140px)] sm:min-h-[420px] sm:rounded-[30px] sm:p-3 md:p-4"
         >
             <div className="mx-auto flex max-w-5xl flex-col gap-4 sm:gap-5">
                 {messages.map((message) => (
-                    <MessageBubble
-                        key={message.id}
-                        message={message}
-                        onSaveAssistantMessage={message.role === "assistant" && !message.pending ? onSaveAssistantMessage : undefined}
-                        onOpenVirtualProject={message.role === "assistant" && !message.pending ? onOpenVirtualProject : undefined}
-                    />
+                    <div key={message.id} style={{ contentVisibility: "auto", containIntrinsicSize: "auto 200px" }}>
+                        <MessageBubble
+                            message={message}
+                            onSaveAssistantMessage={message.role === "assistant" && !message.pending ? onSaveAssistantMessage : undefined}
+                            onOpenVirtualProject={message.role === "assistant" && !message.pending ? onOpenVirtualProject : undefined}
+                        />
+                    </div>
                 ))}
 
                 {loading && !messages.some((message) => message.pending) && (

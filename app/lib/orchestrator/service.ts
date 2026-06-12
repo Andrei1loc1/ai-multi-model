@@ -999,6 +999,9 @@ Use markdown headers (##) for each section. Include file paths in code block hea
         imagePayload.contextSources.length
             ? "One or more image attachments were pre-analyzed for you. Use the provided image context as trusted visual evidence."
             : "No image attachments were provided unless the context below says otherwise.",
+        documentPayload.contextSources.length
+            ? "IMPORTANT: One or more documents were uploaded by the user. The document content is provided below under 'Document context:'. You MUST base your answer primarily on the document content. Quote, summarize, or reference the document directly. Do NOT say you cannot access the document — the full text IS provided to you. Answer in the same language as the document if it's not English."
+            : "No documents were uploaded.",
         imageFocusedRequest
             ? "The user is asking about an image. Keep the answer grounded in the image context and do not bring in unrelated repo or note context."
             : "If multiple contexts are available, prefer only the ones directly relevant to the user request.",

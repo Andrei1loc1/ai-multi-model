@@ -1,25 +1,21 @@
 "use client";
 
-import { memo, useMemo, useState } from "react";
+import { lazy, memo, Suspense, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import "katex/dist/katex.min.css";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Check, Copy } from "lucide-react";
 
+const SyntaxHighlighter = lazy(() =>
+    import("react-syntax-highlighter").then((mod) => ({ default: mod.Prism }))
+);
+
 const syntaxTheme = {
-    ...oneDark,
     'pre[class*="language-"]': {
-        ...oneDark['pre[class*="language-"]'],
         background: "transparent",
         margin: 0,
         padding: 0,
     },
     'code[class*="language-"]': {
-        ...oneDark['code[class*="language-"]'],
         background: "transparent",
     },
 };
@@ -84,22 +80,30 @@ const CodeBlock = memo(function CodeBlock({
                 </button>
             </div>
 
-            <div className="overflow-x-auto px-4 py-4">
-                <SyntaxHighlighter
-                    style={syntaxTheme}
-                    language={language || undefined}
-                    PreTag="div"
-                    className="!m-0 !bg-transparent !p-0"
-                    showLineNumbers
-                    lineNumberStyle={codeLineNumberStyle}
-                    customStyle={codeCustomStyle}
-                >
-                    {code.replace(/\n$/, "")}
-                </SyntaxHighlighter>
-            </div>
+            <Suspense fallback={<pre className="overflow-x-auto px-4 py-4 text-sm leading-7 text-slate-300"><code>{code}</code></pre>}>
+                <SyntaxHighlighterWithTheme language={language} code={code} />
+            </Suspense>
         </div>
     );
 });
+
+function SyntaxHighlighterWithTheme({ language, code }: { language: string | null; code: string }) {
+    return (
+        <div className="overflow-x-auto px-4 py-4">
+            <SyntaxHighlighter
+                style={syntaxTheme}
+                language={language || undefined}
+                PreTag="div"
+                className="!m-0 !bg-transparent !p-0"
+                showLineNumbers
+                lineNumberStyle={codeLineNumberStyle}
+                customStyle={codeCustomStyle}
+            >
+                {code.replace(/\n$/, "")}
+            </SyntaxHighlighter>
+        </div>
+    );
+}
 
 function MarkdownContent({
     content,
@@ -215,8 +219,7 @@ function MarkdownContent({
         <div className={`response-markdown ${className}`.trim()}>
             <ReactMarkdown
                 components={components}
-                remarkPlugins={[remarkGfm, remarkMath]}
-                rehypePlugins={[[rehypeKatex, { throwOnError: false, errorColor: "#cc0000", output: "html" }]]}
+                remarkPlugins={[remarkGfm]}
             >
                 {content}
             </ReactMarkdown>
