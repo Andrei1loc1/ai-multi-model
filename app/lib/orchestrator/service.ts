@@ -56,7 +56,7 @@ function composeRecentThreadBlock(
                     ? "SYSTEM"
                     : "USER";
 
-            return `${roleLabel}: ${message.content.trim().slice(0, 600)}`;
+            return `${roleLabel}: ${message.content.trim().slice(0, 1200)}`;
         })
         .filter((line) => line.trim().length > 0);
 
@@ -783,7 +783,7 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
     const repoConnection = input.workspaceId ? await getWorkspaceRepoConnection(input.workspaceId) : null;
     const documentAttachments = input.attachments?.filter((a): a is Extract<typeof a, { type: "document" }> => a.type === "document") || [];
     const [recentMessages, memoryEntries, repoContext, noteContext, imagePayload, documentPayload, existingVirtualProject] = await Promise.all([
-        getConversationMessages(conversation.id, 4),
+        getConversationMessages(conversation.id, 8),
         input.capabilities?.allowMemory === false
             ? Promise.resolve([])
             : getRelevantMemory({
@@ -791,14 +791,12 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
                   workspaceId: input.workspaceId,
                   conversationId: conversation.id,
                   repoConnectionId: repoConnection?.id || null,
-                  limit: 4,
+                  limit: 6,
               }),
-        input.capabilities?.allowRepo === false || !input.workspaceId || (imageFocusedRequest && taskType !== "coding") || taskType === "chat"
+        input.capabilities?.allowRepo === false || !input.workspaceId || (imageFocusedRequest && taskType !== "coding")
             ? Promise.resolve([])
-            : searchWorkspaceContext(input.workspaceId, input.message, taskType === "coding" ? 8 : 4),
-        taskType === "chat" || imageFocusedRequest
-            ? Promise.resolve([])
-            : getRelevantNotes(input.message),
+            : searchWorkspaceContext(input.workspaceId, input.message, taskType === "coding" ? 10 : 6),
+        input.capabilities?.allowNotes === false || imageFocusedRequest ? Promise.resolve([]) : getRelevantNotes(input.message),
         input.attachments?.length
             ? buildImageContextSources(input.attachments.filter((a): a is Extract<typeof a, { type: "image" }> => a.type === "image"), input.message, selectedProvider)
             : Promise.resolve({ contextSources: [], messageAttachments: [] }),
@@ -813,7 +811,7 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
         input.mode === "agent" &&
         (Boolean(existingVirtualProject) || shouldGenerateVirtualProject(input.message, input.mode));
 
-    const MAX_SOURCE_LENGTH = 500;
+    const MAX_SOURCE_LENGTH = 600;
     const contextSources: ContextSource[] = [
         ...memoryEntries.map((entry) => ({
             type: "memory" as const,
@@ -832,7 +830,7 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
         ...noteContext,
     ].sort((a, b) => b.score - a.score);
 
-    const contextBudget = taskType === "coding" ? 8 : 5;
+    const contextBudget = taskType === "coding" ? 12 : 8;
     const selectedSources = contextSources.slice(0, contextBudget);
 
     if (agentRun) {
@@ -856,28 +854,43 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
     const systemPrompt = [
         souls[input.soul || "default"].promptPrefix,
         input.mode === "agent"
-            ? `Agent mode: build complete multi-file projects. Use Tailwind CSS, separate files, TypeScript types, error handling. Modify only what needs changing.`
-            : "Chat mode. Be clear, structured, and helpful.",
-        "You do not have tools or filesystem access. Never emit tool-call markup or XML invocations.",
+            ? `You are operating in Agent mode. You build real, functional applications. Follow these rules strictly:
+1. Generate COMPLETE, MULTI-FILE projects - not single-file demos
+2. Use external packages freely via import statements (esm.sh handles them automatically)
+3. Use Tailwind CSS utility classes for all styling - never use inline styles
+4. Structure code professionally: separate components, hooks, utilities into different files
+5. Include proper error handling and TypeScript types
+6. Export a default component from the entry file that renders the full app
+7. When updating an existing project, modify only what needs changing, preserve the rest`
+            : "You are operating in Chat mode. Prioritize clarity and usefulness.",
+        "You do not have access to tools or a filesystem at runtime. Never emit tool-call markup, XML invocations, or pseudo-tool syntax.",
         taskType === "coding"
-            ? `Structure coding responses with: ## Understanding, ## Files Used, ## Proposed Changes, ## Code (\`\`\`lang:path headers\`\`\`), ## Risks, ## Next Step.`
-            : "",
+            ? `When building applications, return a structured response with:
+- understanding: brief summary of what you're building
+- files_used: list of files that will be created/modified
+- proposed_changes: array of change descriptions
+- patch_or_code: the actual code, organized in markdown code blocks per file
+- risks: potential issues or limitations
+- next_step: what the user can do next (run, modify, etc.)
+
+Use markdown headers (##) for each section. Include file paths in code block headers like \`\`\`tsx:src/App.tsx\`\`\`.`
+            : "When answering, stay structured and concise unless the question needs depth.",
         imagePayload.contextSources.length
-            ? "Image attachments were pre-analyzed. Use the provided image context as trusted visual evidence."
-            : "",
+            ? "One or more image attachments were pre-analyzed for you. Use the provided image context as trusted visual evidence."
+            : "No image attachments were provided unless the context below says otherwise.",
         imageFocusedRequest
-            ? "The user is asking about an image. Keep the answer grounded in the image context."
-            : "",
+            ? "The user is asking about an image. Keep the answer grounded in the image context and do not bring in unrelated repo or note context."
+            : "If multiple contexts are available, prefer only the ones directly relevant to the user request.",
         repoConnection
-            ? "A repo is connected. Use only the context explicitly provided below."
-            : "",
+            ? "A repository is connected. Use only the repository context that is explicitly provided below. If it is limited, say that plainly instead of inventing tool usage."
+            : "No repository is connected unless the context below says otherwise.",
         recentMessages.length
-            ? "This is a continuing conversation. Resolve references like 'it', 'that', 'there' from the thread below."
-            : "",
+            ? "You are continuing an existing conversation. Resolve references like 'it', 'that', 'there', or follow-up questions using the recent thread below before changing topic."
+            : "This may be the first turn of the conversation.",
         existingVirtualProject
-            ? "A virtual project exists. Keep the answer concise — describe the key edit outcome, skip code blocks in chat."
-            : "",
-    ].filter(Boolean).join("\n");
+            ? "A virtual project already exists for this conversation. Keep the user-facing chat answer concise, describe only the key edit outcome, and do not include code blocks."
+            : "If you provide code in the answer, keep it focused and only when needed.",
+    ].join("\n");
 
     const prompt = [
         "User request:",
@@ -901,19 +914,20 @@ export async function orchestrateChat(input: OrchestrateChatInput): Promise<Orch
     const candidateModels: AIModel[] = [];
     
     if (isAutoSelection) {
+        // Start with profile-preferred models
         const preferred = profile.preferredModelIds
             .map((id) => getModelById(id, selectedProvider))
             .filter((m): m is AIModel => Boolean(m));
-
         candidateModels.push(...preferred);
 
+        // Append all other active models as a global fallback to ensure reliability
         const others = AIModels.filter(m => 
             m.active && 
             !candidateModels.some(existing => existing.id === m.id) &&
             (selectedProvider === "all" || m.provider === selectedProvider)
-        ).sort((a, b) => a.rank - b.rank);
+        ).sort((a, b) => a.rank - b.rank).slice(0, Math.max(0, 3 - preferred.length));
         
-        candidateModels.push(...others.slice(0, 3 - preferred.length));
+        candidateModels.push(...others);
     } else {
         // Just the specifically selected model
         const selected = getModel(preferredModelId === "auto" ? undefined : preferredModelId, selectedProvider);
