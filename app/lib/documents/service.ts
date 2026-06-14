@@ -236,6 +236,71 @@ export async function uploadDocumentAssetFromDataUrl(params: {
     return data as DocumentAssetRecord;
 }
 
+export async function uploadDocumentAssetFromStoragePath(params: {
+    fileName: string;
+    storagePath: string;
+    mimeType: string;
+    workspaceId?: string | null;
+    conversationId?: string | null;
+}) {
+    await ensureDocumentBucket();
+    await cleanupExpiredDocuments();
+
+    const supabase = getSupabaseServerClient();
+    const { data: fileData, error: downloadError } = await supabase.storage
+        .from(DOCUMENT_BUCKET)
+        .download(params.storagePath);
+
+    if (downloadError || !fileData) {
+        throw new Error(`Failed to download file from storage: ${downloadError?.message || "unknown error"}`);
+    }
+
+    const buffer = Buffer.from(await fileData.arrayBuffer());
+
+    if (buffer.length > MAX_DOCUMENT_BYTES) {
+        throw new Error("Document exceeds the 10MB upload limit.");
+    }
+
+    const safeFileName = sanitizeFileName(params.fileName);
+    const extension = safeFileName.includes(".") ? safeFileName.split(".").pop() : params.mimeType.split("/")[1] || "bin";
+    const hash = crypto.createHash("sha256").update(buffer).digest("hex");
+
+    const { data: existing } = await supabase
+        .from("document_assets")
+        .select("*")
+        .eq("sha256", hash)
+        .maybeSingle();
+
+    if (existing) {
+        return existing as DocumentAssetRecord;
+    }
+
+    const extractedText = await convertBufferToMarkdown(buffer, params.mimeType, safeFileName);
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + DOCUMENT_TTL_DAYS * 24 * 60 * 60 * 1000);
+    const asset = {
+        id: crypto.randomUUID(),
+        workspace_id: params.workspaceId || null,
+        conversation_id: params.conversationId || null,
+        storage_path: params.storagePath,
+        file_name: safeFileName,
+        mime_type: params.mimeType,
+        file_size_bytes: buffer.length,
+        sha256: hash,
+        extracted_text: extractedText || null,
+        created_at: now.toISOString(),
+        expires_at: expiresAt.toISOString(),
+    };
+
+    const { data, error } = await supabase.from("document_assets").insert(asset).select("*").single();
+    if (error) {
+        throw new Error(error.message);
+    }
+
+    return data as DocumentAssetRecord;
+}
+
 export async function getDocumentAssetsByIds(documentAssetIds: string[]) {
     if (!documentAssetIds.length) {
         return [];

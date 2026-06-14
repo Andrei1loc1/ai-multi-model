@@ -45,6 +45,7 @@ import type {
     SoulType,
 } from "@/app/lib/workspaces/types";
 import { ALLOWED_DOCUMENT_EXTENSIONS, ALLOWED_DOCUMENT_MIME_TYPES } from "@/app/lib/documents/constants";
+import { getSupabaseBrowserClient } from "@/app/lib/database/supabase";
 
 type Workspace = {
     id: string;
@@ -1006,35 +1007,86 @@ export default function ChatUI({ uploadImageAttachment }: ChatUIProps = {}) {
             );
 
             try {
-                const dataUrl = await fileToDataUrl(target.file);
-                const response = await fetch("/api/uploads/document", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        fileName: target.name,
-                        dataUrl,
-                        workspaceId: selectedWorkspaceId,
-                        conversationId: selectedConversationId,
-                    }),
-                });
-                const data = await response.json();
-                if (!response.ok) {
-                    throw new Error(data.error || "Failed to upload document.");
-                }
+                const LARGE_FILE_THRESHOLD = 2 * 1024 * 1024;
+                const safeFileName = target.name.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 120) || "document";
+                const effectiveMimeType = target.mimeType || target.file.type || "application/octet-stream";
+                const extension = safeFileName.includes(".") ? safeFileName.split(".").pop() : effectiveMimeType.split("/")[1] || "bin";
+                const hash = await crypto.subtle.digest("SHA-256", await target.file.arrayBuffer()).then((buf) => Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join(""));
+                const storagePath = `${selectedWorkspaceId || "global"}/${selectedConversationId || "draft"}/${hash}.${extension}`;
 
-                setDocumentAttachments((current) =>
-                    current.map((attachment) =>
-                        attachment.id === target.id
-                            ? {
-                                  ...attachment,
-                                  status: "ready" as const,
-                                  documentAssetId: data.asset.id,
-                                  mimeType: data.asset.mime_type || attachment.mimeType,
-                                  errorMessage: null,
-                              }
-                            : attachment
-                    )
-                );
+                if (target.file.size > LARGE_FILE_THRESHOLD) {
+                    const supabase = getSupabaseBrowserClient();
+                    const { error: uploadError } = await supabase.storage
+                        .from("chat-documents")
+                        .upload(storagePath, target.file, {
+                            contentType: effectiveMimeType,
+                            cacheControl: "3600",
+                            upsert: true,
+                        });
+                    if (uploadError) {
+                        throw new Error(`Storage upload failed: ${uploadError.message}`);
+                    }
+
+                    const response = await fetch("/api/uploads/document", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            fileName: target.name,
+                            storagePath,
+                            mimeType: effectiveMimeType,
+                            workspaceId: selectedWorkspaceId,
+                            conversationId: selectedConversationId,
+                        }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok) {
+                        throw new Error(data.error || "Failed to process document.");
+                    }
+
+                    setDocumentAttachments((current) =>
+                        current.map((attachment) =>
+                            attachment.id === target.id
+                                ? {
+                                      ...attachment,
+                                      status: "ready" as const,
+                                      documentAssetId: data.asset.id,
+                                      mimeType: data.asset.mime_type || attachment.mimeType,
+                                      errorMessage: null,
+                                  }
+                                : attachment
+                        )
+                    );
+                } else {
+                    const dataUrl = await fileToDataUrl(target.file);
+                    const response = await fetch("/api/uploads/document", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            fileName: target.name,
+                            dataUrl,
+                            workspaceId: selectedWorkspaceId,
+                            conversationId: selectedConversationId,
+                        }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok) {
+                        throw new Error(data.error || "Failed to upload document.");
+                    }
+
+                    setDocumentAttachments((current) =>
+                        current.map((attachment) =>
+                            attachment.id === target.id
+                                ? {
+                                      ...attachment,
+                                      status: "ready" as const,
+                                      documentAssetId: data.asset.id,
+                                      mimeType: data.asset.mime_type || attachment.mimeType,
+                                      errorMessage: null,
+                                  }
+                                : attachment
+                        )
+                    );
+                }
             } catch (uploadError: unknown) {
                 setDocumentAttachments((current) =>
                     current.map((attachment) =>

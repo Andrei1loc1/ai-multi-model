@@ -5,6 +5,11 @@ const nextConfig: NextConfig = {
     root: process.cwd(),
   },
   serverExternalPackages: ["sharp", "pdf-parse", "@napi-rs/canvas"],
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "50mb",
+    },
+  },
 };
 
 export default nextConfig;

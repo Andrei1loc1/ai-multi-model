@@ -202,3 +202,14 @@ create index if not exists virtual_projects_workspace_updated_idx
 
 create unique index if not exists virtual_project_files_project_path_idx
   on virtual_project_files(project_id, path);
+
+-- Allow anonymous uploads to chat-documents storage bucket
+create policy "Allow anonymous uploads to chat-documents"
+  on storage.objects for insert
+  to anon
+  with check (bucket_id = 'chat-documents');
+
+create policy "Allow anonymous reads from chat-documents"
+  on storage.objects for select
+  to anon
+  using (bucket_id = 'chat-documents');

@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasSupabaseConfig } from "@/app/lib/database/supabase";
-import { uploadDocumentAssetFromDataUrl } from "@/app/lib/documents/service";
+import { uploadDocumentAssetFromStoragePath } from "@/app/lib/documents/service";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
+
+export const config = {
+    api: {
+        bodyParser: {
+            sizeLimit: "50mb",
+        },
+    },
+};
 
 export async function POST(req: NextRequest) {
     if (!hasSupabaseConfig()) {
@@ -14,13 +23,14 @@ export async function POST(req: NextRequest) {
 
     try {
         const body = await req.json();
-        if (!body?.fileName?.trim() || !body?.dataUrl) {
-            return NextResponse.json({ error: "fileName and dataUrl are required." }, { status: 400 });
+        if (!body?.fileName?.trim() || !body?.storagePath) {
+            return NextResponse.json({ error: "fileName and storagePath are required." }, { status: 400 });
         }
 
-        const asset = await uploadDocumentAssetFromDataUrl({
+        const asset = await uploadDocumentAssetFromStoragePath({
             fileName: body.fileName,
-            dataUrl: body.dataUrl,
+            storagePath: body.storagePath,
+            mimeType: body.mimeType || "application/pdf",
             workspaceId: body.workspaceId || null,
             conversationId: body.conversationId || null,
         });
